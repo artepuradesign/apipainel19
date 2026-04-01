@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reconhecimento Facial 3D com MediaPipe - Versão Limpa</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    
+    <script type="module">
+        import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs";
+        window.FaceLandmarker = FaceLandmarker;
+        window.FilesetResolver = FilesetResolver;
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: linear-gradient(180deg, #0f1117 0%, #1a1f2e 100%);
+            color: #e0e0ff;
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+        }
+        .dashboard {
+            max-width: 1100px;
+            margin: 40px auto;
+            background: #161b28;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.4);
+            overflow: hidden;
+            border: 1px solid #2a3247;
+        }
+        .header { padding: 20px 30px; background: #0f1117; border-bottom: 1px solid #2a3247; display: flex; align-items: center; gap: 15px; }
+        .content { padding: 30px; }
+        .upload-area {
+            border: 2px dashed #3b4a6b;
+            border-radius: 12px;
+            padding: 70px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .upload-area:hover { border-color: #00d4ff; background: #1e2538; }
+        .analysis-panel { display: none; padding: 25px; background: rgba(255,255,255,0.03); border-radius: 16px; }
+        .image-wrapper { position: relative; max-width: 420px; margin: 0 auto 25px; border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 8px rgba(0,212,255,0.15); }
+        .image-wrapper img, canvas.overlay { width: 100%; display: block; }
+        .three-container { margin-top: 30px; height: 420px; background: #0a0d14; border-radius: 12px; overflow: hidden; }
+        .progress-bar-wrapper { height: 12px; background: #1e2538; border-radius: 9999px; overflow: hidden; margin: 15px 0; }
+        .progress-bar { height: 100%; background: linear-gradient(90deg, #00d4ff, #00ff9d); width: 0%; transition: width 0.1s linear; }
+        .status { text-align: center; color: #00ff9d; font-weight: 500; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="header">
+            <h1>Reconhecimento Facial 3D com MediaPipe</h1>
+        </div>
+        <div class="content">
+            <div id="upload-screen">
+                <div class="upload-area" id="upload-area">
+                    <input type="file" id="photo-upload" accept="image/*" style="display:none;">
+                    <p style="font-size:19px;margin-bottom:10px;">📸 Envie uma foto frontal bem iluminada</p>
+                    <p style="color:#8a9ac0;">Detectando 468 pontos biométricos reais</p>
+                </div>
+            </div>
+
+            <div id="analysis-panel" class="analysis-panel">
+                <p style="margin-bottom:15px;color:#a0b0ff;">Carregando modelo IA...</p>
+                
+                <div class="image-wrapper">
+                    <img id="face-image" alt="Foto enviada">
+                    <canvas id="overlay-canvas" class="overlay"></canvas>
+                </div>
+
+                <div class="progress-bar-wrapper">
+                    <div id="progress-bar" class="progress-bar"></div>
+                </div>
+                <div class="status" id="status-text">Aguardando foto...</div>
+
+                <div id="three-container" class="three-container"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let faceLandmarker = null;
+        let scene, camera, renderer, pointsMesh;
+        let animationFrame;
+
+        async function initMediaPipe() {
+            if (faceLandmarker) return;
+
+            const status = document.getElementById('status-text');
+            status.textContent = "Carregando modelo MediaPipe (primeira vez pode demorar)...";
+
+            const vision = await window.FilesetResolver.forVisionTasks(
+                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+            );
+
+            faceLandmarker = await window.FaceLandmarker.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+                    delegate: "GPU"          // Tenta GPU primeiro (melhor performance)
+                },
+                runningMode: "IMAGE",
+                numFaces: 1,
+                outputFaceBlendshapes: false,   // ← Desativa blendshapes (remove o warning)
+                outputFacialTransformationMatrixes: false
+            });
+
+            console.log("✅ MediaPipe carregado sem warnings de blendshapes");
+            status.textContent = "Modelo pronto. Envie uma foto.";
+        }
+
+        async function detectFace(imageElement) {
+            if (!faceLandmarker) await initMediaPipe();
+            const results = faceLandmarker.detect(imageElement);
+            return results.faceLandmarks?.[0] || null;
+        }
+
+        function drawLandmarks(canvas, landmarks, img) {
+            const ctx = canvas.getContext('2d');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            landmarks.forEach(lm => {
+                const x = lm.x * canvas.width;
+                const y = lm.y * canvas.height;
+                ctx.fillStyle = '#00ffdd';
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = '#00d4ff';
+                ctx.beginPath();
+                ctx.arc(x, y, 3.2, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        function create3DModel(landmarks) {
+            const container = document.getElementById('three-container');
+            if (!scene) {
+                scene = new THREE.Scene();
+                camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 100);
+                camera.position.z = 7.5;
+
+                renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                renderer.setSize(container.clientWidth, container.clientHeight);
+                container.appendChild(renderer.domElement);
+
+                scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+                const pointLight = new THREE.PointLight(0x00ffdd, 2.5);
+                pointLight.position.set(6, 8, 12);
+                scene.add(pointLight);
+            }
+
+            if (pointsMesh) scene.remove(pointsMesh);
+
+            const positions = [];
+            landmarks.forEach(lm => {
+                positions.push(
+                    (lm.x - 0.5) * 6.2,
+                    -(lm.y - 0.5) * 6.2,
+                    -lm.z * 11
+                );
+            });
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+
+            const material = new THREE.PointsMaterial({
+                size: 0.085,
+                color: 0x00ffdd,
+                transparent: true,
+                opacity: 0.95,
+                blending: THREE.AdditiveBlending
+            });
+
+            pointsMesh = new THREE.Points(geometry, material);
+            scene.add(pointsMesh);
+
+            function animate() {
+                animationFrame = requestAnimationFrame(animate);
+                if (pointsMesh) pointsMesh.rotation.y += 0.0035;
+                renderer.render(scene, camera);
+            }
+            animate();
+        }
+
+        async function processImage(dataUrl) {
+            const uploadScreen = document.getElementById('upload-screen');
+            const panel = document.getElementById('analysis-panel');
+            uploadScreen.style.display = 'none';
+            panel.style.display = 'block';
+
+            const img = document.getElementById('face-image');
+            img.src = dataUrl;
+
+            img.onload = async () => {
+                const overlay = document.getElementById('overlay-canvas');
+                const status = document.getElementById('status-text');
+                const progressBar = document.getElementById('progress-bar');
+
+                status.textContent = "Detectando 468 landmarks com IA...";
+
+                let progress = 0;
+                const interval = setInterval(() => {
+                    progress += 6;
+                    progressBar.style.width = `${Math.min(progress, 100)}%`;
+                    if (progress >= 95) clearInterval(interval);
+                }, 80);
+
+                const landmarks = await detectFace(img);
+
+                if (landmarks && landmarks.length > 0) {
+                    progressBar.style.width = '100%';
+                    status.innerHTML = "✅ <strong>468 pontos detectados com sucesso!</strong>";
+                    drawLandmarks(overlay, landmarks, img);
+                    create3DModel(landmarks);
+                } else {
+                    status.textContent = "❌ Não foi possível detectar o rosto. Tente uma foto mais clara e frontal.";
+                    progressBar.style.background = '#ff4d4d';
+                }
+            };
+        }
+
+        // Upload
+        document.addEventListener('DOMContentLoaded', () => {
+            const uploadArea = document.getElementById('upload-area');
+            const fileInput = document.getElementById('photo-upload');
+
+            uploadArea.addEventListener('click', () => fileInput.click());
+
+            fileInput.addEventListener('change', e => {
+                if (e.target.files[0]) {
+                    const reader = new FileReader();
+                    reader.onload = ev => processImage(ev.target.result);
+                    reader.readAsDataURL(e.target.files[0]);
+                }
+            });
+
+            // Drag & drop
+            uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.style.borderColor = '#00ff9d'; });
+            uploadArea.addEventListener('dragleave', () => uploadArea.style.borderColor = '#3b4a6b');
+            uploadArea.addEventListener('drop', e => {
+                e.preventDefault();
+                uploadArea.style.borderColor = '#3b4a6b';
+                const file = e.dataTransfer.files[0];
+                if (file && file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = ev => processImage(ev.target.result);
+                    reader.readAsDataURL(file);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

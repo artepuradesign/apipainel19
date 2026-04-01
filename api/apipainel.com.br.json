@@ -1,0 +1,3018 @@
+{
+  "name": "apipainel.com.br",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\n// =============================================\n// 1. PEGAR EXCLUSIVAMENTE O BLOCO \"Historico de Telefone\"\n// =============================================\nfunction pegarBlocoHistorico() {\n  const normalizar = (str) => str.normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").replace(/[^\\w]/g, \"\").toLowerCase();\n  const tituloBusca = normalizar(\"Historico de Telefone\");\n  const regexH2 = /<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi;\n  let match;\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      const fim = resto.search(/<div class=\"bg-gray-800|$/);\n      return html.substring(match.index, inicio + (fim >= 0 ? fim : resto.length));\n    }\n  }\n  return null;\n}\n\nconst blocoTelefone = pegarBlocoHistorico();\n\n// Se não encontrou a sessão → retorna null\nif (!blocoTelefone || blocoTelefone.includes(\"NÃO ENCONTRAMOS RESULTADOS\")) {\n  return [];\n}\n\n// =============================================\n// 2. FUNÇÃO: Extrai valores APENAS dentro do bloco correto\n// =============================================\nfunction extrairDoBloco(chave) {\n  const regex = new RegExp(`<strong>${chave}:?\\\\s*</strong>\\\\s*<span[^>]*>([^<]+)</span>`, 'gi');\n  const valores = [];\n  let match;\n  while ((match = regex.exec(blocoTelefone)) !== null) {\n    const valor = match[1].trim();\n    if (valor !== \"SEM RESULTADO\" && valor !== \"NÃO ENCONTRAMOS RESULTADOS\") {\n      valores.push(valor);\n    }\n  }\n  return valores;\n}\n\n// =============================================\n// 3. EXTRAIR TODOS OS CAMPOS\n// =============================================\nconst ddds = extrairDoBloco(\"DDD\");\nconst telefones = extrairDoBloco(\"TELEFONE\");\nconst tiposCodigo = extrairDoBloco(\"TIPO DE TELEFONE\");\nconst datasInclusao = extrairDoBloco(\"DATA DE INCLUSÃO\");\nconst datasInformacao = extrairDoBloco(\"DATA DE INFORMAÇÃO\");\nconst sigilos = extrairDoBloco(\"SIGILO\");\nconst nsus = extrairDoBloco(\"NSU\");\nconst classificacoes = extrairDoBloco(\"CLASSIFICAÇÃO\");\n\n// =============================================\n// 4. SE NÃO TEM TELEFONE → RETORNA VAZIO\n// =============================================\nif (telefones.length === 0) {\n  return [];\n}\n\n// =============================================\n// 5. MAPEAMENTO DO TIPO\n// =============================================\nconst mapaTipo = {\n  \"1\": \"Residencial\",\n  \"2\": \"Comercial\",\n  \"3\": \"Celular\",\n  \"4\": \"WhatsApp\"\n};\n\n// =============================================\n// 6. MONTAR ARRAY DE TELEFONES\n// =============================================\nconst total = Math.max(ddds.length, telefones.length, tiposCodigo.length);\nconst telefonesArray = Array.from({ length: total }, (_, i) => {\n  const ddd = (ddds[i] || \"\").padStart(2, '0');\n  const tel = telefones[i] || \"\";\n\n  return {\n    cpf_id: cpf_id,\n    ddd: ddd,\n    telefone: tel,\n    telefone_completo: `${ddd}${tel}`.replace(/\\D/g, ''),\n    tipo_codigo: tiposCodigo[i] || \"\",\n    tipo_texto: mapaTipo[tiposCodigo[i]] || \"Outro\",\n    data_inclusao: datasInclusao[i] || null,\n    data_informacao: datasInformacao[i] || null,\n    sigilo: sigilos[i] === \"1\" ? 1 : 0,\n    nsu: nsus[i] || null,\n    classificacao: classificacoes[i] || null\n  };\n});\n\n// =============================================\n// 7. RETORNA UM ITEM POR TELEFONE\n// =============================================\nreturn telefonesArray.map(t => ({ json: t }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        864
+      ],
+      "id": "9836f63f-f72c-4193-bc61-84472e39becd",
+      "name": "telefone",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\n// =============================================\n// 1. PEGAR BLOCO \"Emails\"\n// =============================================\n// Capturamos o conteúdo entre o título \"Emails\" e o próximo bloco ou fim da string\nconst blocoMatch = html.match(/<h2[^>]*>[\\s\\S]*?Emails[\\s\\S]*?<\\/h2>([\\s\\S]*?)(?=<div class=\"bg-gray-800|$)/i);\nif (!blocoMatch) return [];\n\nconst conteudoEmails = blocoMatch[1];\n\n// =============================================\n// 2. DIVIDIR EM REGISTROS INDIVIDUAIS\n// =============================================\n// Cada registro de e-mail começa com o rótulo \"EMAIL:\"\nconst partes = conteudoEmails.split(/<strong>EMAIL:?\\s*<\\/strong>/i);\n// A primeira parte (índice 0) é o que vem antes do primeiro \"EMAIL:\", então removemos\npartes.shift();\n\nconst resultados = [];\n\npartes.forEach(parte => {\n    let email = null;\n\n    // TENTATIVA 1: EMAIL VISÍVEL\n    const textoEmailMatch = parte.match(/<span[^>]*>([^<]+)<\\/span>/i);\n    if (textoEmailMatch && textoEmailMatch[1]) {\n        const texto = textoEmailMatch[1].trim();\n        if (texto && texto.includes('@') && !texto.includes('[email')) {\n            email = texto.toLowerCase();\n        }\n    }\n\n    // TENTATIVA 2: EMAIL OFUSCADO (Cloudflare)\n    if (!email) {\n        const cfMatch = parte.match(/data-cfemail=[\"']([a-f0-9]+)[\"'][^>]*>\\[email&#160;protected\\]/i);\n        if (cfMatch && cfMatch[1]) {\n            const cfemail = cfMatch[1];\n            let decoded = '';\n            const key = parseInt(cfemail.substr(0, 2), 16);\n            for (let i = 2; i < cfemail.length; i += 2) {\n                decoded += String.fromCharCode(parseInt(cfemail.substr(i, 2), 16) ^ key);\n            }\n            if (decoded.includes('@')) {\n                email = decoded.toLowerCase();\n            }\n        }\n    }\n\n    // Se encontramos um e-mail válido, extraímos os outros campos desta \"parte\"\n    if (email) {\n        function extrair(chave) {\n            const regex = new RegExp(`<strong>${chave}:?\\\\s*</strong>\\\\s*<span[^>]*>([^<]+)</span>`, 'i');\n            const match = regex.exec(parte);\n            return match && match[1] ? match[1].trim() : null;\n        }\n\n        const prioridade = extrair(\"PRIORIDADE\");\n        const score = extrair(\"SCORE DO EMAIL\");\n        const pessoal = extrair(\"EMAIL PESSOAL\");\n        const duplicado = extrair(\"EMAIL DUPLICADO\");\n        const blacklist = extrair(\"BLACKLIST\");\n        const estrutura = extrair(\"ESTRUTURA\");\n        const statusVt = extrair(\"STATUS DO VT\");\n        const dominio = extrair(\"DOMINIO\");\n        const mapas = extrair(\"MAPAS\");\n        const peso = extrair(\"PESO\");\n        const dataInclusao = extrair(\"DATA DE INCLUSÃO\");\n\n        resultados.push({\n            json: {\n                cpf_id,\n                email,\n                prioridade: prioridade ? parseInt(prioridade) : null,\n                score_email: score || null,\n                email_pessoal: pessoal === \"S\" ? 1 : 0,\n                email_duplicado: duplicado === \"N\" ? 0 : 1,\n                blacklist: blacklist === \"N\" ? 0 : 1,\n                estrutura_valida: estrutura === \"VALIDA\" ? 1 : 0,\n                status_vt: statusVt === \"SEM EVIDENCIA\" ? null : statusVt,\n                dominio_publico: dominio === \"PUBLICO\" ? 1 : 0,\n                mapas: mapas ? parseInt(mapas) : null,\n                peso: peso ? parseInt(peso) : null,\n                data_inclusao: dataInclusao || null\n            }\n        });\n    }\n});\n\nreturn resultados;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        1008
+      ],
+      "id": "d0514cec-6905-4907-811f-f940f07af93d",
+      "name": "email",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\n// =============================================\n// 1. ISOLAR BLOCO \"Covid\"\n// =============================================\nconst blocoCovidMatch = html.match(\n  /<h2[^>]*>\\s*Covid\\s*<\\/h2>([\\s\\S]*?)(?=<div class=\"bg-gray-800|$)/i\n);\n\nif (!blocoCovidMatch) return [];\n\nconst blocoCovid = blocoCovidMatch[1];\n\n// =============================================\n// 2. QUEBRAR EM REGISTROS (cada COR = 1 vacina)\n// =============================================\nconst partes = blocoCovid.split(/<strong>COR:\\s*<\\/strong>/i);\npartes.shift(); // remove lixo inicial\n\nfunction extrair(parte, chave) {\n  const regex = new RegExp(\n    `<strong>${chave}:\\\\s*</strong>\\\\s*<span[^>]*>([^<]*)<\\\\/span>`,\n    'i'\n  );\n  const match = regex.exec(parte);\n  if (!match) return null;\n  const valor = match[1].trim();\n  if (valor === 'SEM INFORMACAO' || valor === 'SEM RESULTADO') return null;\n  return valor;\n}\n\nconst resultados = [];\n\npartes.forEach(parte => {\n  const nomeVacina = extrair(parte, 'NOME DA VACINA');\n  const dataAplicacao = extrair(parte, 'DATA DE APLICAÇÃO');\n\n  // Só segue se for vacina válida\n  if (!nomeVacina || !dataAplicacao) return;\n\n  // Converte data BR -> MySQL\n  let dataMysql = null;\n  if (dataAplicacao.match(/^\\d{2}\\/\\d{2}\\/\\d{4}$/)) {\n    const [d, m, y] = dataAplicacao.split('/');\n    dataMysql = `${y}-${m}-${d} 00:00:00`;\n  }\n\n  resultados.push({\n    json: {\n      cpf_id,\n      cor: extrair(parte, 'COR'),\n      cns: extrair(parte, 'CNS'),\n      mae: extrair(parte, 'NOME MAE'),\n      nome_vacina: nomeVacina,\n      descricao_vacina: extrair(parte, 'DESCRIÇÃO DA VACINA'),\n      lote_vacina: extrair(parte, 'LOTE DA VACINA'),\n      grupo_atendimento: extrair(parte, 'GRUPO DE ATENDIMENTO'),\n      data_aplicacao: dataMysql,\n      status: extrair(parte, 'STATUS'),\n      nome_estabelecimento: extrair(parte, 'NOME DO ESTABELECIMENTO'),\n      aplicador_vacina: extrair(parte, 'APLICADOR DE VACINA'),\n      uf: extrair(parte, 'UF'),\n      municipio: extrair(parte, 'MUNICIPIO'),\n      bairro: extrair(parte, 'BAIRRO'),\n      cep: extrair(parte, 'CEP')\n    }\n  });\n});\n\nreturn resultados;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        1296
+      ],
+      "id": "5d126739-143a-497f-b581-1bb57a9cde2c",
+      "name": "vacina",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\n// ================================\n// 1. EXTRAI BLOCO \"Auxilio Emergencial\"\n// ================================\nconst blocoMatch = html.match(\n  /<h2[^>]*>\\s*Auxilio Emergencial\\s*<\\/h2>([\\s\\S]*?)(?=<div class=\"bg-gray-800|$)/i\n);\nif (!blocoMatch) return [];\n\nconst bloco = blocoMatch[1];\n\n// ================================\n// 2. QUEBRA EM LINHAS <p>\n// ================================\nconst linhas = bloco.match(/<p class=\"text-gray-300\">[\\s\\S]*?<\\/p>/gi) || [];\n\nconst resultados = [];\nlet atual = {};\n\nfunction extrair(label, texto) {\n  const r = new RegExp(`<strong>${label}:?\\\\s*</strong>\\\\s*<span[^>]*>([^<]+)<\\\\/span>`, 'i');\n  const m = r.exec(texto);\n  return m ? m[1].trim() : null;\n}\n\nlinhas.forEach(linha => {\n  const mes = extrair('MES DE DISPONIBILIZAÇÃO', linha);\n  if (mes) {\n    if (Object.keys(atual).length > 0) {\n      resultados.push({ ...atual });\n      atual = {};\n    }\n    atual.cpf_id = cpf_id;\n    atual.mes_disponibilizacao = mes;\n  }\n\n  const uf = extrair('UF', linha);\n  if (uf) atual.uf = uf;\n\n  const enquadramento = extrair('ENQUADRAMENTO', linha);\n  if (enquadramento) atual.enquadramento = enquadramento;\n\n  const parcela = extrair('PARCELA', linha);\n  if (parcela) atual.parcela = parcela;\n\n  const observacao = extrair('OBSERVAÇÃO', linha);\n  if (observacao) atual.observacao = observacao;\n\n  const valor = extrair('VALOR DO BENEFICIO', linha);\n  if (valor) {\n    atual.valor_beneficio = parseFloat(\n      valor.replace('.', '').replace(',', '.')\n    );\n  }\n});\n\n// Último registro\nif (Object.keys(atual).length > 0) {\n  resultados.push(atual);\n}\n\n// Retorna apenas registros válidos\nreturn resultados\n  .filter(r => r.parcela && r.mes_disponibilizacao)\n  .map(r => ({ json: r }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        1728
+      ],
+      "id": "828bde6a-49c4-4a75-989b-a7ea7209a846",
+      "name": "auxilio"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\n/**\n * 1️⃣ Isola somente o bloco \"Rais - Histórico de Emprego\"\n */\nfunction pegarBlocoRais() {\n  const normalizar = (str) =>\n    str\n      .normalize(\"NFD\")\n      .replace(/[\\u0300-\\u036f]/g, \"\")\n      .replace(/[^\\w]/g, \"\")\n      .toLowerCase();\n\n  const tituloBusca = normalizar(\"Rais - Histórico de Emprego\");\n\n  const regexH2 = /<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi;\n  let match;\n\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      const fim = resto.search(/<div class=[\"']bg-gray-800|$/i);\n\n      return html.substring(\n        match.index,\n        inicio + (fim >= 0 ? fim : resto.length)\n      );\n    }\n  }\n  return null;\n}\n\nconst blocoRais = pegarBlocoRais();\n\n/**\n * 2️⃣ IF SIMPLES: sem bloco, sem cpf → morre\n */\nif (!cpf_id || !blocoRais || blocoRais.toUpperCase().includes(\"NÃO ENCONTRAMOS\")) {\n  return [];\n}\n\n/**\n * 3️⃣ Regex que captura UM REGISTRO COMPLETO DE RAIS\n */\nconst regexRais = /<strong>CNPJ:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>[\\s\\S]*?<strong>RAZAO SOCIAL:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>[\\s\\S]*?<strong>SITUAÇÃO:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>[\\s\\S]*?<strong>DATA DE ENTREGA:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>[\\s\\S]*?<strong>DATA DE ADMISSÃO:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>[\\s\\S]*?<strong>DATA DE DESLIGAMENTO:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>[\\s\\S]*?<strong>DATA DE CADASTRO:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>[\\s\\S]*?<strong>FAIXA RENDA:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>/gi;\n\nconst registros = [];\nlet match;\n\n/**\n * 4️⃣ Loop igualzinho o da Claro\n */\nwhile ((match = regexRais.exec(blocoRais)) !== null) {\n  const cnpj = match[1].trim();\n\n  // 👉 IF SIMPLES QUE VOCÊ PEDIU\n  if (!cnpj) continue;\n\n  registros.push({\n    cpf_id,\n    cnpj,\n    razao_social: match[2].trim(),\n    situacao: match[3].trim(),\n    data_entrega: match[4].trim(),\n    data_admissao: match[5].trim(),\n    data_desligamento: match[6].trim(),\n    data_cadastro: match[7].trim(),\n    faixa_renda: match[8].trim(),\n  });\n}\n\n/**\n * 5️⃣ Se não achou nada, não retorna lixo\n */\nif (registros.length === 0) {\n  return [];\n}\n\n/**\n * 6️⃣ Retorno padrão n8n\n */\nreturn registros.map(r => ({ json: r }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        2880
+      ],
+      "id": "63d3af3f-a0a6-43bf-b93c-751f8986cd0c",
+      "name": "rais",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\nfunction pegarBlocoINSS() {\n  const normalizar = (str) =>\n    str.normalize(\"NFD\")\n       .replace(/[\\u0300-\\u036f]/g, \"\")\n       .replace(/[^\\w]/g, \"\")\n       .toLowerCase();\n\n  const tituloBusca = normalizar(\"Inss\");\n\n  const regexH2 = /<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi;\n  let match;\n\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      const fim = resto.search(/<div class=[\"']bg-gray-800|$/i);\n      return html.substring(match.index, inicio + (fim >= 0 ? fim : resto.length));\n    }\n  }\n  return null;\n}\n\nconst bloco = pegarBlocoINSS();\n\nif (!cpf_id || !bloco) {\n  return [];\n}\n\nconst regexItem = /<strong>NB:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>[\\s\\S]*?<strong>ENTIDADE:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>[\\s\\S]*?<strong>ESPECIE:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>[\\s\\S]*?<strong>VALOR:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>/gi;\n\nconst registros = [];\nlet m;\n\nwhile ((m = regexItem.exec(bloco)) !== null) {\n  const especieDescricao = m[3].trim();\n  const especieCodigo = especieDescricao.split(' ')[0];\n\n  registros.push({\n    cpf_id,\n    nb: m[1].trim(),\n    entidade: m[2].trim(),\n    especie: especieCodigo,\n    especie_descricao: especieDescricao,\n    valor: m[4].trim()\n  });\n}\n\nreturn registros.map(r => ({ json: r }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        1872
+      ],
+      "id": "8adfe8bb-fed5-41d4-be3b-872b48845f36",
+      "name": "inss",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "content": "{{ $json.body.link }}",
+        "height": 80,
+        "width": 208
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1424,
+        1344
+      ],
+      "typeVersion": 1,
+      "id": "a65f8d5c-62d5-4ba5-9a4b-de44ddf3c7bd",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": []
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -688,
+        864
+      ],
+      "id": "7838c566-3af8-4ab6-ba3d-bffee6fd47bd",
+      "name": "cpf_id"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_cpf \n(\n  cpf, nome, data_nascimento, sexo, mae, pai, estado_civil, rg, orgao_emissor, uf_emissor,\n  cbo, titulo_eleitor, zona, secao, renda, pis,\n  csb8, csb8_faixa, csba, csba_faixa, poder_aquisitivo, fx_poder_aquisitivo,\n  data_obito, fonte_dados\n)\nVALUES \n(\n  '{{$json.cpf}}',\n  '{{$json.nome}}',\n\n  -- Converte DD/MM/AAAA → AAAA-MM-DD (se existir)\n  {{ $json.data_nascimento ? \"'\"+$json.data_nascimento.split('/').reverse().join('-')+\"'\" : 'NULL' }},\n\n  '{{$json.sexo}}',\n  {{ $json.mae ? \"'\"+$json.mae+\"'\" : 'NULL' }},\n  {{ $json.pai ? \"'\"+$json.pai+\"'\" : 'NULL' }},\n  {{ $json.estado_civil ? \"'\"+$json.estado_civil+\"'\" : 'NULL' }},\n  {{ $json.rg ? \"'\"+$json.rg+\"'\" : 'NULL' }},\n  {{ $json.orgao_emissor ? \"'\"+$json.orgao_emissor+\"'\" : 'NULL' }},\n  {{ $json.uf_emissor ? \"'\"+$json.uf_emissor+\"'\" : 'NULL' }},\n  {{ $json.cbo ? \"'\"+$json.cbo+\"'\" : 'NULL' }},\n\n  {{ $json.titulo_eleitor ? \"'\"+$json.titulo_eleitor+\"'\" : 'NULL' }},\n  {{ $json.zona ? \"'\"+$json.zona+\"'\" : 'NULL' }},\n  {{ $json.secao ? \"'\"+$json.secao+\"'\" : 'NULL' }},\n\n  -- Renda: converte 1.234,56 → 1234.56\n  {{ $json.renda ? \"'\"+$json.renda.replace(/\\./g,'').replace(',','.')+\"'\" : 'NULL' }},\n\n  {{ $json.pis ? \"'\"+$json.pis+\"'\" : 'NULL' }},\n\n  {{ $json.csb8 !== null ? $json.csb8 : 'NULL' }},\n  {{ $json.csb8_faixa ? \"'\"+$json.csb8_faixa+\"'\" : 'NULL' }},\n  {{ $json.csba !== null ? $json.csba : 'NULL' }},\n  {{ $json.csba_faixa ? \"'\"+$json.csba_faixa+\"'\" : 'NULL' }},\n\n  {{ $json.poder_aquisitivo ? \"'\"+$json.poder_aquisitivo+\"'\" : 'NULL' }},\n  {{ $json.fx_poder_aquisitivo ? \"'\"+$json.fx_poder_aquisitivo+\"'\" : 'NULL' }},\n\n  {{ $json.data_obito ? \"'\"+$json.data_obito.split('/').reverse().join('-')+\"'\" : 'NULL' }},\n\n  'paineljsisis'\n)\nON DUPLICATE KEY UPDATE\n  nome = VALUES(nome),\n  data_nascimento = VALUES(data_nascimento),\n  sexo = VALUES(sexo),\n  mae = VALUES(mae),\n  pai = VALUES(pai),\n  estado_civil = VALUES(estado_civil),\n  rg = VALUES(rg),\n  orgao_emissor = VALUES(orgao_emissor),\n  uf_emissor = VALUES(uf_emissor),\n  cbo = VALUES(cbo),\n  titulo_eleitor = VALUES(titulo_eleitor),\n  zona = VALUES(zona),\n  secao = VALUES(secao),\n  renda = VALUES(renda),\n  pis = VALUES(pis),\n  csb8 = VALUES(csb8),\n  csb8_faixa = VALUES(csb8_faixa),\n  csba = VALUES(csba),\n  csba_faixa = VALUES(csba_faixa),\n  poder_aquisitivo = VALUES(poder_aquisitivo),\n  fx_poder_aquisitivo = VALUES(fx_poder_aquisitivo),\n  data_obito = VALUES(data_obito),\n  fonte_dados = VALUES(fonte_dados),\n  updated_at = CURRENT_TIMESTAMP;\n\n-- RETORNA O ID PARA USAR NAS TABELAS FILHAS\nSELECT \n  id AS cpf_id,\n  cpf\nFROM base_cpf \nWHERE cpf = '{{$json.cpf}}' \nLIMIT 1;",
+        "options": {}
+      },
+      "name": "dados basicos",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -848,
+        864
+      ],
+      "id": "5b8d3651-c8f2-497b-afc8-5500fff3a62b",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.body.link }}",
+        "options": {}
+      },
+      "name": "url",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -1392,
+        1152
+      ],
+      "id": "52f0e514-cfd6-42a0-9069-e85dd8b430e3"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telegram",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1600,
+        1152
+      ],
+      "webhookId": "5c86faac-520a-47ce-a8c5-deb622f9f076",
+      "id": "4afff58e-2fff-48dc-8b45-9d94f9caf891"
+    },
+    {
+      "parameters": {
+        "mode": "combineBySql",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -496,
+        1136
+      ],
+      "id": "af75d11f-ef5f-4f46-acaf-be010682e02d",
+      "name": "dados_gerais"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || \"\";\n\n// =============================================\n// FUNÇÃO: Normalizar texto\n// =============================================\nfunction normalizar(str) {\n  return str\n    .normalize(\"NFD\")\n    .replace(/[\\u0300-\\u036f]/g, \"\")\n    .replace(/[^\\w]/g, \"\")\n    .toLowerCase();\n}\n\n// =============================================\n// FUNÇÃO: Pegar bloco por título (h2 ou h3)\n// =============================================\nfunction pegarBloco(tituloBusca) {\n  const tituloNormalizado = normalizar(tituloBusca);\n  // Aceita <h2> ou <h3>\n  const regex = /<(h2|h3)[^>]*>([\\s\\S]*?)<\\/\\1>/gi;\n  let match;\n  while ((match = regex.exec(html)) !== null) {\n    const tituloEncontrado = match[2] || \"\";\n    if (normalizar(tituloEncontrado).includes(tituloNormalizado)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      // Para próximo heading ou div bg-gray-800 ou fim do conteúdo\n      const fim = resto.search(/<(h[2-6])[^>]*>|div class=\"bg-gray-800|$/i);\n      const fimPos = fim >= 0 ? fim : resto.length;\n      return html.substring(match.index, inicio + fimPos);\n    }\n  }\n  return null;\n}\n\n// =============================================\n// FUNÇÃO: Extrair campo (flexível para o formato real)\n// =============================================\nfunction extrairCampo(bloco, chave) {\n  if (!bloco) return null;\n  // Padrão principal: <strong>CHAVE: </strong><span>VALOR</span>\n  // Aceita variação de espaços, sem span obrigatório, etc.\n  const regex = new RegExp(\n    `<strong>\\\\s*${chave}\\\\s*[:.]?\\\\s*</strong>\\\\s*(?:<span[^>]*>)?\\\\s*([^<]+?)(?:</span>)?\\\\s*(?=<|$)`,\n    \"i\"\n  );\n  const match = bloco.match(regex);\n  if (!match) return null;\n  let valor = match[1].trim();\n  if (valor === \"SEM RESULTADO\" || valor === \"NÃO ENCONTRAMOS RESULTADOS\" || valor === \"-\") {\n    return null;\n  }\n  return valor;\n}\n\n// =============================================\n// FUNÇÃO: Extrair SCORE do TOPO (CSB8 e CSBA via blocos)\n// =============================================\nfunction extrairScoreTopo(html) {\n  const dados = {\n    csb8: null,\n    csb8_faixa: null,\n    csba: null,\n    csba_faixa: null\n  };\n\n  // Bloco CSB8\n  const blocoCsb8 = pegarBloco(\"CSB8 [SCORE]\") || pegarBloco(\"CSB8\");\n  if (blocoCsb8) {\n    const pontuacaoStr = extrairCampo(blocoCsb8, \"PONTUAÇÃO\");\n    if (pontuacaoStr) {\n      // Remove qualquer caractere não numérico e converte\n      dados.csb8 = parseInt(pontuacaoStr.replace(/\\D/g, \"\"), 10);\n    }\n    dados.csb8_faixa = extrairCampo(blocoCsb8, \"FAIXA\");\n  }\n\n  // Bloco CSBA (geralmente logo abaixo)\n  const blocoCsba = pegarBloco(\"CSBA [SCORE]\") || pegarBloco(\"CSBA\");\n  if (blocoCsba) {\n    const pontuacaoStr = extrairCampo(blocoCsba, \"PONTUAÇÃO\");\n    if (pontuacaoStr) {\n      dados.csba = parseInt(pontuacaoStr.replace(/\\D/g, \"\"), 10);\n    }\n    dados.csba_faixa = extrairCampo(blocoCsba, \"FAIXA\");\n  }\n\n  return dados;\n}\n\n// =============================================\n// FUNÇÃO: Extrair imagens (Base64 ou URL)\n// =============================================\nfunction extrairImagens(html) {\n  const imagens = [];\n  const regex = /<img[^>]+src=[\"']([^\"']+)[\"']/gi;\n  let match;\n  while ((match = regex.exec(html)) !== null) {\n    const src = match[1];\n    if (src.startsWith(\"data:image\") || src.startsWith(\"http\")) {\n      imagens.push(src);\n    }\n  }\n  return imagens;\n}\n\n// =============================================\n// OBJETO FINAL\n// =============================================\nconst resultado = {\n  cpf: null,\n  nome: null,\n  data_nascimento: null,\n  sexo: null,\n  mae: null,\n  pai: null,\n  estado_civil: null,\n  rg: null,\n  orgao_emissor: null,\n  uf_emissor: null,\n  cbo: null,\n  titulo_eleitor: null,\n  zona: null,\n  secao: null,\n  renda: null,\n  pis: null,\n  csb8: null,\n  csb8_faixa: null,\n  csba: null,\n  csba_faixa: null,\n  poder_aquisitivo: null,\n  fx_poder_aquisitivo: null,\n  data_obito: null,\n  fotos: []\n};\n\n// =============================================\n// FOTOS\n// =============================================\nresultado.fotos = extrairImagens(html);\n\n// =============================================\n// SCORE (prioridade: blocos CSB8/CSBA)\n// =============================================\nconst scoreTopo = extrairScoreTopo(html);\nresultado.csb8 = scoreTopo.csb8;\nresultado.csb8_faixa = scoreTopo.csb8_faixa;\nresultado.csba = scoreTopo.csba;\nresultado.csba_faixa = scoreTopo.csba_faixa;\n\n// =============================================\n// DADOS BÁSICOS\n// =============================================\nconst blocoBasicos =\n  pegarBloco(\"Dados Básicos\") ||\n  pegarBloco(\"DadosBasicos\") ||\n  pegarBloco(\"DadosBásicos\");\n\nif (!blocoBasicos) {\n  return [\n    {\n      json: {\n        erro: \"Sessão 'Dados Básicos' não encontrada\",\n        preview: html.substring(0, 500)\n      }\n    }\n  ];\n}\n\nresultado.nome = extrairCampo(blocoBasicos, \"NOME\");\nresultado.cpf = extrairCampo(blocoBasicos, \"CPF\");\nresultado.sexo = extrairCampo(blocoBasicos, \"SEXO\");\nresultado.data_nascimento = extrairCampo(blocoBasicos, \"NASCIMENTO\");\nresultado.mae = extrairCampo(blocoBasicos, \"NOME DA MÃE\");\nresultado.pai = extrairCampo(blocoBasicos, \"NOME DO PAI\");\nresultado.estado_civil = extrairCampo(blocoBasicos, \"ESTADO CIVIL\");\nresultado.rg = extrairCampo(blocoBasicos, \"RG\");\nresultado.orgao_emissor = extrairCampo(blocoBasicos, \"ORGÃO EMISSOR\");\nresultado.uf_emissor = extrairCampo(blocoBasicos, \"UF EMISSOR\");\nresultado.cbo = extrairCampo(blocoBasicos, \"CBO\");\nresultado.renda = extrairCampo(blocoBasicos, \"RENDA\");\nresultado.data_obito = extrairCampo(blocoBasicos, \"DATA OBITO\");\n\nconst tituloBasico = extrairCampo(blocoBasicos, \"TITULO DE ELEITOR\");\n\n// =============================================\n// TSE\n// =============================================\nconst blocoTse = pegarBloco(\"TSE\");\nif (blocoTse && !blocoTse.toUpperCase().includes(\"NÃO ENCONTRAMOS RESULTADOS\")) {\n  resultado.titulo_eleitor =\n    extrairCampo(blocoTse, \"TITULO DE ELEITOR\") || tituloBasico;\n  resultado.zona = extrairCampo(blocoTse, \"ZONA\");\n  resultado.secao = extrairCampo(blocoTse, \"SEÇÃO\");\n} else {\n  resultado.titulo_eleitor = tituloBasico;\n}\n\n// =============================================\n// PIS\n// =============================================\nconst blocoPis = pegarBloco(\"PIS\");\nif (blocoPis && !blocoPis.toUpperCase().includes(\"NÃO ENCONTRAMOS RESULTADOS\")) {\n  resultado.pis = extrairCampo(blocoPis, \"PIS\");\n}\n\n// =============================================\n// SCORE (fallback via bloco \"Score\")\n// =============================================\nconst blocoScore = pegarBloco(\"Score\");\nif (blocoScore && !blocoScore.toUpperCase().includes(\"NÃO ENCONTRAMOS RESULTADOS\")) {\n  if (!resultado.csb8) {\n    const pontuacao8 = extrairCampo(blocoScore, \"CSB8\") || extrairCampo(blocoScore, \"PONTUAÇÃO\");\n    resultado.csb8 = pontuacao8 ? parseInt(pontuacao8.replace(/\\D/g, \"\"), 10) : null;\n    resultado.csb8_faixa = extrairCampo(blocoScore, \"CSB8 FAIXA\") || extrairCampo(blocoScore, \"FAIXA\");\n  }\n  if (!resultado.csba) {\n    const pontuacaoA = extrairCampo(blocoScore, \"CSBA\") || extrairCampo(blocoScore, \"PONTUAÇÃO\");\n    resultado.csba = pontuacaoA ? parseInt(pontuacaoA.replace(/\\D/g, \"\"), 10) : null;\n    resultado.csba_faixa = extrairCampo(blocoScore, \"CSBA FAIXA\") || extrairCampo(blocoScore, \"FAIXA\");\n  }\n}\n\n// =============================================\n// PODER AQUISITIVO\n// =============================================\nconst blocoPoder =\n  pegarBloco(\"Poder aquisitivo\") ||\n  pegarBloco(\"Poderaquisitivo\");\nif (blocoPoder && !blocoPoder.toUpperCase().includes(\"NÃO ENCONTRAMOS RESULTADOS\")) {\n  resultado.poder_aquisitivo = extrairCampo(blocoPoder, \"PODER AQUISITIVO\");\n  resultado.fx_poder_aquisitivo = extrairCampo(blocoPoder, \"FAIXA DE PODER AQUISITIVO\");\n}\n\n// =============================================\n// VALIDAÇÃO FINAL\n// =============================================\nif (!resultado.cpf && !resultado.nome) {\n  return [\n    {\n      json: {\n        erro: \"CPF ou nome não encontrado\",\n        preview: html.substring(0, 500)\n      }\n    }\n  ];\n}\n\nreturn [{ json: resultado }];"
+      },
+      "name": "base",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1008,
+        864
+      ],
+      "id": "8f78f4b7-2fc3-46e5-9db5-c5fdb20c1a93"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\nfunction pegarBlocoParentes() {\n  const normalizar = (str) => str.normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").replace(/[^\\w]/g, \"\").toLowerCase();\n  const tituloBusca = normalizar(\"Parentes\");\n  const regexH2 = /<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi;\n  let match;\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      const fim = resto.search(/<div class=\\\"bg-gray-800|$/);\n      return html.substring(match.index, inicio + (fim >= 0 ? fim : resto.length));\n    }\n  }\n  return null;\n}\n\nconst blocoParentes = pegarBlocoParentes();\nif (!cpf_id || !blocoParentes || blocoParentes.includes(\"NÃO ENCONTRAMOS RESULTADOS\")) {\n  return [];\n}\n\nfunction extrairDoBloco(chave) {\n  const regex = new RegExp(`<strong>${chave}:?\\\\s*</strong>\\\\s*<span[^>]*>([^<]+)</span>`, 'gi');\n  const valores = [];\n  let match;\n  while ((match = regex.exec(blocoParentes)) !== null) {\n    const valor = match[1].trim();\n    if (valor !== \"SEM RESULTADO\" && valor !== \"NÃO ENCONTRAMOS RESULTADOS\") {\n      valores.push(valor);\n    }\n  }\n  return valores;\n}\n\nconst cpfsVinculo  = extrairDoBloco(\"CPF VINCULO\");\nconst nomesVinculo = extrairDoBloco(\"NOME VINCULO\");\nconst vinculos     = extrairDoBloco(\"VINCULO\");\n\nif (cpfsVinculo.length === 0) {\n  return [];\n}\n\nconst total = Math.max(cpfsVinculo.length, nomesVinculo.length, vinculos.length);\nconst parentesArray = Array.from({ length: total }, (_, i) => ({\n  cpf_id,\n  cpf_vinculo: cpfsVinculo[i] || null,\n  nome_vinculo: nomesVinculo[i] || \"DESCONHECIDO\",\n  vinculo: vinculos[i] || \"OUTRO\"\n}));\n\nif (!parentesArray || parentesArray.length === 0) {\n  return [];\n}\n\nreturn parentesArray.map(p => ({ json: p }));"
+      },
+      "name": "parentes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        144
+      ],
+      "id": "657beb0c-fb66-4c94-9b14-cf72fe594458"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": "base_parente",
+        "dataMode": "defineBelow",
+        "columnToMatchOn": "cpf_id",
+        "valueToMatchOn": "={{ $json.cpf_id }}",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "cpf_vinculo",
+              "value": "={{ $json.cpf_vinculo }}"
+            },
+            {
+              "column": "nome_vinculo",
+              "value": "={{ $json.nome_vinculo }}"
+            },
+            {
+              "column": "vinculo",
+              "value": "={{ $json.vinculo }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "inserir parente",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2,
+      "position": [
+        224,
+        144
+      ],
+      "id": "014e817d-3ef8-4d2e-a959-a2f68e24ca7d",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [],
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.cpf_vinculo }}",
+              "operation": "notEqual"
+            }
+          ]
+        }
+      },
+      "name": "verificador",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        144
+      ],
+      "id": "eb6ae9f8-9224-4a05-94fc-d739892de1d2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\n// =============================================\n// 1. PEGAR EXCLUSIVAMENTE O BLOCO \"Cns\"\n// =============================================\nfunction pegarBlocoCns() {\n  const normalizar = (str) => str.normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").replace(/[^\\w]/g, \"\").toLowerCase();\n  const tituloBusca = normalizar(\"Cns\");\n  const regexH2 = /<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi;\n  let match;\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      const fim = resto.search(/<div class=\"bg-gray-800|$/);\n      return html.substring(match.index, inicio + (fim >= 0 ? fim : resto.length));\n    }\n  }\n  return null;\n}\n\nconst blocoCns = pegarBlocoCns();\n\n// Se não encontrou ou está vazio\nif (!blocoCns || blocoCns.includes(\"NÃO ENCONTRAMOS RESULTADOS\")) {\n  return [];\n}\n\n// =============================================\n// 2. FUNÇÃO: Extrai valores APENAS dentro do bloco correto\n// =============================================\nfunction extrairDoBloco(chave) {\n  const regex = new RegExp(`<strong>${chave}:?\\\\s*</strong>\\\\s*<span[^>]*>([^<]+)</span>`, 'gi');\n  const valores = [];\n  let match;\n  while ((match = regex.exec(blocoCns)) !== null) {\n    const valor = match[1].trim();\n    if (valor !== \"SEM RESULTADO\" && valor !== \"NÃO ENCONTRAMOS RESULTADOS\") {\n      valores.push(valor);\n    }\n  }\n  return valores;\n}\n\n// =============================================\n// 3. EXTRAIR TODOS OS CAMPOS\n// =============================================\nconst numerosCns = extrairDoBloco(\"NÚMERO DO CNS\");\nconst datasAtribuicao = extrairDoBloco(\"DATA DE ATRIBUIÇÃO\");\nconst tiposCartao = extrairDoBloco(\"TIPO DE CARTÃO\");\n\n// =============================================\n// 4. SE NÃO TEM CNS → RETORNA VAZIO\n// =============================================\nif (numerosCns.length === 0) {\n  return [];\n}\n\n// =============================================\n// 5. MONTAR ARRAY DE CNS\n// =============================================\nconst total = Math.min(numerosCns.length, tiposCartao.length);\nconst cnsArray = Array.from({ length: total }, (_, i) => {\n  return {\n    cpf_id: cpf_id,\n    numero_cns: numerosCns[i],\n    data_atribuicao: datasAtribuicao[i] && datasAtribuicao[i] !== \"SEM RESULTADO\" ? datasAtribuicao[i] : null,\n    tipo_cartao: tiposCartao[i] // \"D\" ou \"P\"\n  };\n});\n\n// =============================================\n// 6. RETORNA UM ITEM POR CNS\n// =============================================\nreturn cnsArray.map(item => ({ json: item }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        432
+      ],
+      "id": "e77725f2-915f-4cbe-8f9e-b08c66f893eb",
+      "name": "cns"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        3312
+      ],
+      "id": "9a962dfb-9e00-4d34-be27-c347546b8368",
+      "name": "conjuge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\n// === Localiza o bloco \"Certidão de Nascimento\" ===\nfunction pegarBlocoCertidao() {\n  const normalizar = (str) =>\n    str.normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").replace(/[^\\w]/g, \"\").toLowerCase();\n\n  const tituloBusca = normalizar(\"Certidão de Nascimento\");\n  const regexH2 = /<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi;\n  let match;\n\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      const fim = resto.search(/<div class=\\\"bg-gray-800|$/);\n      return html.substring(match.index, inicio + (fim >= 0 ? fim : resto.length));\n    }\n  }\n  return null;\n}\n\nconst blocoCertidao = pegarBlocoCertidao();\n\n// === Extrai cada campo do bloco ===\nfunction extrair(chave) {\n  const regex = new RegExp(`<strong>${chave}:?\\\\s*</strong>\\\\s*<span[^>]*>([^<]+)</span>`, 'i');\n  const match = blocoCertidao ? blocoCertidao.match(regex) : null;\n  if (!match) return null;\n  const valor = match[1].trim();\n  return (valor === \"SEM RESULTADO\" || valor === \"NÃO ENCONTRAMOS RESULTADOS\") ? null : valor;\n}\n\n// === Extrai os dados principais ===\nconst dados = {\n  cpf_id,\n  tipo_certidao: extrair(\"TIPO DE CERTIDÃO\"),\n  numero_certidao: extrair(\"NÚMERO DA CERTIDÃO\"),\n  acervo: extrair(\"ACERVO\"),\n  servico_registro_civil: extrair(\"SERVIÇO REGISTRO CIVIL\"),\n  ano: extrair(\"ANO\"),\n  tipo_livro: extrair(\"TIPO DE LIVRO\"),\n  livro: extrair(\"LIVRO\"),\n  folha: extrair(\"FOLHA\"),\n  termo: extrair(\"TERMO\"),\n  digito_verificador: extrair(\"DÍGITO VERIFICADOR\"),\n  data_emissao: extrair(\"DATA DE EMISSÃO\")\n};\n\n// === IF FINAL (único) ===\nif (!cpf_id || !blocoCertidao || blocoCertidao.includes(\"NÃO ENCONTRAMOS RESULTADOS\") ||\n    Object.values(dados).filter(v => v && v !== cpf_id).length === 0) {\n  return [];\n}\n\nreturn [{ json: dados }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        288
+      ],
+      "id": "05f4871d-ed95-4874-b953-054cd521f909",
+      "name": "certidao"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\n// ===============================\n// FUNÇÃO PARA PEGAR BLOCO POR H2\n// ===============================\nfunction pegarBlocoGestao() {\n  const normalizar = (str) =>\n    str.normalize(\"NFD\")\n       .replace(/[\\u0300-\\u036f]/g, \"\")\n       .replace(/[^\\w]/g, \"\")\n       .toLowerCase();\n\n  const tituloBusca = normalizar(\"Gestão Cadastral\");\n\n  const regexH2 = /<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi;\n  let match;\n\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      const fim = resto.search(/<div class=[\"']bg-gray-800|$/i);\n      return html.substring(match.index, inicio + (fim >= 0 ? fim : resto.length));\n    }\n  }\n  return null;\n}\n\nconst bloco = pegarBlocoGestao();\n\n// ===============================\n// IF SIMPLES (SE NÃO EXISTIR, SAI)\n// ===============================\nif (!cpf_id || !bloco || bloco.toUpperCase().includes(\"NÃO ENCONTRAMOS\")) {\n  return [];\n}\n\n// ===============================\n// FUNÇÃO DE EXTRAÇÃO GENÉRICA\n// ===============================\nfunction extrair(campo) {\n  const regex = new RegExp(\n    `<strong>${campo}:?\\\\s*</strong>\\\\s*<span[^>]*>([^<]+)</span>`,\n    'i'\n  );\n  const match = regex.exec(bloco);\n  return match && match[1] ? match[1].trim() : null;\n}\n\n// ===============================\n// COLETA DOS CAMPOS\n// ===============================\nconst registro = {\n  cpf_id,\n  grau_qualidade: extrair(\"GRAU QUALIDADE\"),\n  identificador_corporativo: extrair(\"IDENTIFICADOR CORPORATIVO\"),\n  original_rfb: extrair(\"ORIGINAL RFB\"),\n  nomade: extrair(\"NOMADE\"),\n  situacao: extrair(\"SITUAÇÃO\"),\n  motivo_alteracao_situacao: extrair(\"MOTIVO ALTERAÇÃO SITUAÇÃO\"),\n  vip: extrair(\"VIP\"),\n  motivo_alteracao_vip: extrair(\"MOTIVO ALTERAÇÃO VIP\"),\n  protecao_testemunha: extrair(\"PROTEÇÃO TESTEMUNHA\"),\n  descricao_protecao_testemunha: extrair(\"DESCRIÇÃO DA PROTEÇÃO A TESTEMUNHA\"),\n  motivo_nao_higienizado: extrair(\"MOTIVO NÃO HIGIENIZADO\"),\n  vivo: extrair(\"VIVO\")\n};\n\n// ===============================\n// IF MAIS SIMPLES POSSÍVEL\n// ===============================\nif (!registro.identificador_corporativo) {\n  return [];\n}\n\nreturn [{ json: registro }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        576
+      ],
+      "id": "8bebe6d1-ed0f-44ee-b2d5-1558595b9cae",
+      "name": "gestao"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data;\nconst cpf = $json.cpf;\nconst cpf_id = $json.cpf_id;\n\n// Regex correta\nconst regexPis = /<strong>PIS:\\s*<\\/strong>\\s*<span[^>]*>(.*?)<\\/span>/i;\nconst match = html.match(regexPis);\n\n// mantém todo o contexto\nconst base = {\n  ...$json,\n  cpf,\n  cpf_id\n};\n\nif (!match) {\n  return [{\n    ...base,\n    pis: null,\n    status: 'pis_nao_encontrado'\n  }];\n}\n\nlet pis = match[1].trim();\n\n// Ignorar SEM RESULTADO\nif (!pis || pis.toUpperCase() === 'SEM RESULTADO') {\n  return [{\n    ...base,\n    pis: null,\n    status: 'pis_sem_resultado'\n  }];\n}\n\nreturn [{\n  ...base,\n  pis,\n  status: 'pis_valido'\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        720
+      ],
+      "id": "1725ea62-26da-4600-ae7d-2b7ae6cfde3d",
+      "name": "pis"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id || null;\n\nif (!cpf_id) return [];\n\n// Função auxiliar para normalizar texto (sem acentos, só letras/números)\nfunction normalizar(str) {\n  return (str || '')\n    .normalize(\"NFD\")\n    .replace(/[\\u0300-\\u036f]/g, \"\")\n    .replace(/[^\\w\\s]/g, \"\")\n    .toLowerCase()\n    .trim();\n}\n\n// 1. Isola o bloco de Endereço\nfunction pegarBlocoEndereco() {\n  const tituloBusca = normalizar(\"endereco\");\n  const regexH2 = /<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi;\n  let match;\n\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      \n      // Tenta achar o fim do card/conteiner (bg-gray-800 é comum em tailwind)\n      // Mas também aceita outros fechamentos comuns ou fim do html\n      const fimRegex = /<(?:div|section|article)[^>]*class=[\"'][^\"']*bg-gray-800[^\"']*[\"']|<\\/(?:div|section|article)>|$/i;\n      const fim = resto.search(fimRegex);\n      \n      return html.substring(\n        match.index,\n        inicio + (fim >= 0 ? fim : resto.length)\n      );\n    }\n  }\n  return null;\n}\n\nconst bloco = pegarBlocoEndereco();\nif (!bloco || bloco.toUpperCase().includes(\"NÃO ENCONTRAMOS\") || normalizar(bloco).includes(\"sem resultado\")) {\n  return [];\n}\n\n// Verifica se é data válida no formato dd/mm/yyyy\nfunction ehDataValida(str) {\n  if (!str) return false;\n  const cleaned = str.trim().replace(/\\s+/g, '');\n  return /^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(cleaned) && \n         !isNaN(Date.parse(cleaned.split('/').reverse().join('-')));\n}\n\n// Regex de endereço (mantive quase igual, mas com ajustes sutis)\nconst regexEndereco = /<strong>TIPO DE LOGRADOURO:\\s*<\\/strong>\\s*<span[^>]*>([^<]*?)<\\/span>[\\s\\S]*?<strong>NOME DO LOGRADOURO:\\s*<\\/strong>\\s*<span[^>]*>([^<]*?)<\\/span>[\\s\\S]*?<strong>N[ÚU]MERO DO LOGRADOURO:\\s*<\\/strong>\\s*<span[^>]*>([^<]*?)<\\/span>[\\s\\S]*?<strong>COMPLEMENTO DO LOGRADOURO:\\s*<\\/strong>\\s*<span[^>]*>([^<]*?)<\\/span>[\\s\\S]*?<strong>BAIRRO:\\s*<\\/strong>\\s*<span[^>]*>([^<]*?)<\\/span>[\\s\\S]*?<strong>CIDADE:\\s*<\\/strong>\\s*<span[^>]*>([^<]*?)<\\/span>[\\s\\S]*?<strong>CEP:\\s*<\\/strong>\\s*<span[^>]*>([^<]*?)<\\/span>[\\s\\S]*?<strong>DATA DE ATUALIZAÇÃO:\\s*<\\/strong>\\s*<span[^>]*>([^<]*?)<\\/span>[\\s\\S]*?<strong>DATA DE INCLUS[ÃA]O:\\s*<\\/strong>\\s*<span[^>]*>([^<]*?)<\\/span>/gi;\n\nconst enderecos = [];\nlet match;\n\nwhile ((match = regexEndereco.exec(bloco)) !== null) {\n  let cep = (match[7] || '').trim().replace(/\\D/g, ''); // só números\n\n  // Requisito mínimo: CEP com 8 dígitos\n  if (cep.length !== 8) continue;\n\n  // Valida datas antes de enviar\n  const dtAtualizacao = ehDataValida(match[8]) ? match[8].trim() : null;\n  const dtInclusao    = ehDataValida(match[9]) ? match[9].trim() : null;\n\n  enderecos.push({\n    cpf_id,\n    tipo_logradouro: (match[1] || '').trim() || null,\n    logradouro:      (match[2] || '').trim() || null,\n    numero:          (match[3] || '').trim() || null,\n    complemento:     (match[4] || '').trim() || null,\n    bairro:          (match[5] || '').trim() || null,\n    cidade:          (match[6] || '').trim() || null,\n    cep,  // já limpo: 8 dígitos\n    data_atualizacao: dtAtualizacao,\n    data_inclusao:    dtInclusao\n  });\n}\n\nif (enderecos.length === 0) {\n  return [];\n}\n\nreturn enderecos.map(item => ({ json: item }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        1152
+      ],
+      "id": "224d4014-05c3-4cec-96ad-b441cf93c711",
+      "name": "endereco",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "content": "\n",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        128
+      ],
+      "id": "92e7c3eb-2bc0-4017-a050-238d1ecc75d8",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "\n",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        272
+      ],
+      "id": "e248e7a4-86f1-4a4e-9edb-397a993f06b3",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [],
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.cpf_vinculo }}",
+              "operation": "notEqual"
+            }
+          ]
+        }
+      },
+      "name": "ver conjuge",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        3312
+      ],
+      "id": "4c4788d7-c780-48b2-8821-c2cbb43d330e"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.tipo_certidao }}",
+              "operation": "notEqual"
+            }
+          ]
+        }
+      },
+      "name": "ver certidao",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        288
+      ],
+      "id": "904bb9a7-cb05-4f63-bc98-3952cd1c3e64"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": {
+          "__rl": true,
+          "value": "base_certidao",
+          "mode": "list",
+          "cachedResultName": "base_certidao"
+        },
+        "dataMode": "defineBelow",
+        "columnToMatchOn": "cpf_id",
+        "valueToMatchOn": "={{ $json.cpf_id }}",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "=tipo_certidao",
+              "value": "={{ $json.tipo_certidao }}"
+            },
+            {
+              "column": "numero_certidao",
+              "value": "={{ $json.numero_certidao }}"
+            },
+            {
+              "column": "acervo",
+              "value": "={{ $json.acervo }}"
+            },
+            {
+              "column": "servico_registro_civil",
+              "value": "={{ $json.servico_registro_civil }}"
+            },
+            {
+              "column": "ano",
+              "value": "={{ $json.ano }}"
+            },
+            {
+              "column": "tipo_livro",
+              "value": "={{ $json.livro }}"
+            },
+            {
+              "column": "livro",
+              "value": "={{ $json.livro }}"
+            },
+            {
+              "column": "folha",
+              "value": "={{ $json.folha }}"
+            },
+            {
+              "column": "termo",
+              "value": "={{ $json.termo }}"
+            },
+            {
+              "column": "digito_verificador",
+              "value": "={{ $json.digito_verificador }}"
+            },
+            {
+              "column": "data_emissao",
+              "value": "={{ $json.data_emissao }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        288
+      ],
+      "id": "503431e9-edb6-400c-9f17-effbace7f408",
+      "name": "inserir certidao",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [],
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.numero_cns }}",
+              "operation": "notEqual"
+            }
+          ]
+        }
+      },
+      "name": "ver cns",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        432
+      ],
+      "id": "5592e36b-2ee1-4146-a1d4-daf20f4f4861"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [],
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.identificador_corporativo }}",
+              "operation": "notEqual"
+            }
+          ]
+        }
+      },
+      "name": "ver gestao",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        576
+      ],
+      "id": "cce5aa18-065d-4bbd-9f08-00a56837606b"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [],
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.telefone }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "name": "ver telefone",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        864
+      ],
+      "id": "dcf83686-bb91-45ea-9fa7-e1b287395fdd"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [],
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.email }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "name": "ver email",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        1008
+      ],
+      "id": "b77224ec-cb64-4fc6-a76c-6eed06d9d00e"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [],
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.cep }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "name": "ver endereco",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        1152
+      ],
+      "id": "a5bbda73-aedd-47d9-b4c5-4f5d7dba5228"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": {
+          "__rl": true,
+          "value": "base_telefone",
+          "mode": "list",
+          "cachedResultName": "base_telefone"
+        },
+        "dataMode": "defineBelow",
+        "columnToMatchOn": "cpf_id",
+        "valueToMatchOn": "={{ $json.cpf_id }}",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "ddd",
+              "value": "={{ $json.ddd }}"
+            },
+            {
+              "column": "telefone",
+              "value": "={{ $json.telefone }}"
+            },
+            {
+              "column": "telefone_completo",
+              "value": "={{ $json.telefone_completo }}"
+            },
+            {
+              "column": "tipo_codigo",
+              "value": "={{ $json.tipo_codigo }}"
+            },
+            {
+              "column": "tipo_texto",
+              "value": "={{ $json.tipo_texto }}"
+            },
+            {
+              "column": "data_inclusao",
+              "value": "={{ $json.data_inclusao }}"
+            },
+            {
+              "column": "data_informacao",
+              "value": "={{ $json.data_informacao }}"
+            },
+            {
+              "column": "sigilo",
+              "value": "={{ $json.sigilo }}"
+            },
+            {
+              "column": "nsu",
+              "value": "={{ $json.nsu }}"
+            },
+            {
+              "column": "classificacao",
+              "value": "={{ $json.classificacao }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        864
+      ],
+      "id": "7d6bc2d3-8e05-41bb-b5bf-5d03fe7675ea",
+      "name": "inserir telefone",
+      "alwaysOutputData": true,
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_email \n(cpf_id, email, prioridade, score_email, email_pessoal, email_duplicado, blacklist, estrutura, status_vt, dominio, mapas, peso, data_inclusao)\nVALUES \n(\n  {{$json.cpf_id}},\n  '{{$json.email}}',\n  {{$json.prioridade}},\n  {{$json.score_email ? \"'\" + $json.score_email + \"'\" : 'NULL'}},\n  '{{$json.email_pessoal === 1 ? \"S\" : \"N\"}}',\n  '{{$json.email_duplicado === 1 ? \"S\" : \"N\"}}',\n  '{{$json.blacklist === 1 ? \"S\" : \"N\"}}',\n  '{{$json.estrutura_valida === 1 ? \"VALIDA\" : \"INVALIDA\"}}',\n  {{$json.status_vt ? \"'\" + $json.status_vt + \"'\" : 'NULL'}},\n  '{{$json.dominio_publico === 1 ? \"PUBLICO\" : \"PRIVADO\"}}',\n  {{$json.mapas}},\n  {{$json.peso}},\n  {{$json.data_inclusao ? \"'\" + $json.data_inclusao + \"'\" : 'NULL'}}\n)\nON DUPLICATE KEY UPDATE\n  prioridade = VALUES(prioridade),\n  score_email = VALUES(score_email),\n  email_pessoal = VALUES(email_pessoal),\n  email_duplicado = VALUES(email_duplicado),\n  blacklist = VALUES(blacklist),\n  estrutura = VALUES(estrutura),\n  status_vt = VALUES(status_vt),\n  dominio = VALUES(dominio),\n  mapas = VALUES(mapas),\n  peso = VALUES(peso),\n  data_inclusao = VALUES(data_inclusao),\n  updated_at = CURRENT_TIMESTAMP;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        1008
+      ],
+      "id": "ad6e0b83-8da8-4ee6-ae65-d9234de399e2",
+      "name": "inserir email",
+      "retryOnFail": false,
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_endereco\n(\n  cpf_id,\n  tipo_logradouro,\n  logradouro,\n  numero,\n  complemento,\n  bairro,\n  cidade,\n  cep,\n  data_atualizacao,\n  data_inclusao\n)\nVALUES\n(\n  {{$json.cpf_id}},\n  {{$json.tipo_logradouro ? \"'\" + $json.tipo_logradouro + \"'\" : \"NULL\"}},\n  {{$json.logradouro ? \"'\" + $json.logradouro + \"'\" : \"NULL\"}},\n  {{$json.numero ? \"'\" + $json.numero + \"'\" : \"NULL\"}},\n  {{$json.complemento ? \"'\" + $json.complemento + \"'\" : \"NULL\"}},\n  {{$json.bairro ? \"'\" + $json.bairro + \"'\" : \"NULL\"}},\n  {{$json.cidade ? \"'\" + $json.cidade + \"'\" : \"NULL\"}},\n  {{$json.cep ? \"'\" + $json.cep + \"'\" : \"NULL\"}},\n  {{$json.data_atualizacao ? \"STR_TO_DATE('\" + $json.data_atualizacao + \"','%d/%m/%Y')\" : \"NULL\"}},\n  {{$json.data_inclusao ? \"STR_TO_DATE('\" + $json.data_inclusao + \"','%d/%m/%Y')\" : \"NULL\"}}\n)\nON DUPLICATE KEY UPDATE\n  numero = VALUES(numero),\n  complemento = VALUES(complemento),\n  bairro = VALUES(bairro),\n  cidade = VALUES(cidade),\n  data_atualizacao = VALUES(data_atualizacao),\n  updated_at = CURRENT_TIMESTAMP;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        1152
+      ],
+      "id": "99880b07-ee27-46c2-ae65-6512e688948d",
+      "name": "inserir endereco",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_gestao\n(\n  cpf_id,\n  grau_qualidade,\n  identificador_corporativo,\n  original_rfb,\n  nomade,\n  situacao,\n  motivo_alteracao_situacao,\n  vip,\n  motivo_alteracao_vip,\n  protecao_testemunha,\n  descricao_protecao_testemunha,\n  motivo_nao_higienizado,\n  vivo\n)\nVALUES\n(\n  {{$json.cpf_id}},\n  {{$json.grau_qualidade ? \"'\" + $json.grau_qualidade + \"'\" : \"NULL\"}},\n  {{$json.identificador_corporativo ? \"'\" + $json.identificador_corporativo + \"'\" : \"NULL\"}},\n  {{$json.original_rfb ? \"'\" + $json.original_rfb + \"'\" : \"NULL\"}},\n  {{$json.nomade ? \"'\" + $json.nomade + \"'\" : \"NULL\"}},\n  {{$json.situacao ? \"'\" + $json.situacao + \"'\" : \"NULL\"}},\n  {{$json.motivo_alteracao_situacao ? \"'\" + $json.motivo_alteracao_situacao + \"'\" : \"NULL\"}},\n  {{$json.vip ? \"'\" + $json.vip + \"'\" : \"NULL\"}},\n  {{$json.motivo_alteracao_vip ? \"'\" + $json.motivo_alteracao_vip + \"'\" : \"NULL\"}},\n  {{$json.protecao_testemunha ? \"'\" + $json.protecao_testemunha + \"'\" : \"NULL\"}},\n  {{$json.descricao_protecao_testemunha ? \"'\" + $json.descricao_protecao_testemunha + \"'\" : \"NULL\"}},\n  {{$json.motivo_nao_higienizado ? \"'\" + $json.motivo_nao_higienizado + \"'\" : \"NULL\"}},\n  {{$json.vivo ? \"'\" + $json.vivo + \"'\" : \"NULL\"}}\n)\nON DUPLICATE KEY UPDATE\n  grau_qualidade = VALUES(grau_qualidade),\n  original_rfb = VALUES(original_rfb),\n  nomade = VALUES(nomade),\n  situacao = VALUES(situacao),\n  motivo_alteracao_situacao = VALUES(motivo_alteracao_situacao),\n  vip = VALUES(vip),\n  motivo_alteracao_vip = VALUES(motivo_alteracao_vip),\n  protecao_testemunha = VALUES(protecao_testemunha),\n  descricao_protecao_testemunha = VALUES(descricao_protecao_testemunha),\n  motivo_nao_higienizado = VALUES(motivo_nao_higienizado),\n  vivo = VALUES(vivo),\n  updated_at = CURRENT_TIMESTAMP;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        576
+      ],
+      "id": "70a5ac17-8762-4762-b480-a9369491ab41",
+      "name": "inserir gestao",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": {
+          "__rl": true,
+          "value": "base_cns",
+          "mode": "list",
+          "cachedResultName": "base_cns"
+        },
+        "dataMode": "defineBelow",
+        "columnToMatchOn": "cpf_id",
+        "valueToMatchOn": "={{ $json.cpf_id }}",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "numero_cns",
+              "value": "={{ $json.numero_cns }}"
+            },
+            {
+              "column": "data_atribuicao",
+              "value": "={{ $json.data_atribuicao }}"
+            },
+            {
+              "column": "tipo_cartao",
+              "value": "={{ $json.tipo_cartao }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        432
+      ],
+      "id": "d178dbab-2b08-48b8-a18e-c34c8790ebe2",
+      "name": "inserir cns",
+      "alwaysOutputData": true,
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_inss\n(\n  cpf_id,\n  nb,\n  entidade,\n  especie,\n  especie_descricao,\n  valor\n)\nVALUES\n(\n  {{ $json.cpf_id }},\n  {{ \"'\" + $json.nb + \"'\" }},\n  {{ \"'\" + $json.entidade + \"'\" }},\n  {{ \"'\" + $json.especie + \"'\" }},\n  {{ \"'\" + $json.especie_descricao + \"'\" }},\n  {{ $json.valor === 'N' ? 'NULL' : \"'\" + $json.valor + \"'\" }}\n)\nON DUPLICATE KEY UPDATE\n  entidade = VALUES(entidade),\n  especie = VALUES(especie),\n  especie_descricao = VALUES(especie_descricao),\n  valor = VALUES(valor),\n  updated_at = CURRENT_TIMESTAMP;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        1872
+      ],
+      "id": "e321ee23-2c3b-48c3-a327-2353c75e549f",
+      "name": "inserir inss",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\nfunction pegarBlocoClaro() {\n  const normalizar = (str) => str.normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").replace(/[^\\w]/g, \"\").toLowerCase();\n  const tituloBusca = normalizar(\"Operadora Claro\") || normalizar(\"Claro\");\n  \n  const regexH2 = /<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi;\n  let match;\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      const fim = resto.search(/<div class=[\"']bg-gray-800|$/i);\n      return html.substring(match.index, inicio + (fim >= 0 ? fim : resto.length));\n    }\n  }\n  return null;\n}\n\nconst blocoClaro = pegarBlocoClaro();\n\nif (!cpf_id || !blocoClaro || blocoClaro.toUpperCase().includes(\"NÃO ENCONTRAMOS RESULTADOS\")) {\n  return [];\n}\n\n// Regex para capturar cada trio DDD + FONE + INST\nconst regexTelefone = /<strong>DDD:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>[\\s\\S]*?<strong>FONE:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>[\\s\\S]*?<strong>INST:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>/gi;\n\nconst telefones = [];\nlet matchTel;\nwhile ((matchTel = regexTelefone.exec(blocoClaro)) !== null) {\n  const ddd  = matchTel[1].trim();\n  const fone = matchTel[2].trim();\n  const inst = matchTel[3].trim();\n  \n  // Ignora entradas inválidas\n  if (ddd && fone && inst && !isNaN(ddd) && !isNaN(fone)) {\n    telefones.push({ ddd, fone, inst });\n  }\n}\n\nif (telefones.length === 0) {\n  return [];\n}\n\n// Monta array simples, só com os campos reais\nconst registros = telefones.map(tel => ({\n  cpf_id,\n  ddd: tel.ddd,\n  fone: tel.fone,\n  inst: tel.inst\n}));\n\nreturn registros.map(reg => ({ json: reg }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        2304
+      ],
+      "id": "0b70b55b-f3ed-45ae-b65b-c86f76f6d149",
+      "name": "claro"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": {
+          "__rl": true,
+          "value": "base_claro",
+          "mode": "list",
+          "cachedResultName": "base_claro"
+        },
+        "dataMode": "defineBelow",
+        "columnToMatchOn": "cpf_id",
+        "valueToMatchOn": "={{ $json.cpf_id }}",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "ddd",
+              "value": "={{ $json.ddd }}"
+            },
+            {
+              "column": "fone",
+              "value": "={{ $json.fone }}"
+            },
+            {
+              "column": "inst",
+              "value": "={{ $json.inst }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        2304
+      ],
+      "id": "e67d5b50-cab0-40c6-a3da-ddf8479d968e",
+      "name": "inserir claro",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5b19694f-ba34-48a4-a233-267198727297",
+              "leftValue": "={{ $json.nb }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        1872
+      ],
+      "id": "f8e83da1-76e9-4d81-a54e-f7b7ff7c8486",
+      "name": "ver inss"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5b19694f-ba34-48a4-a233-267198727297",
+              "leftValue": "={{ $json.fone }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        2304
+      ],
+      "id": "75a332c3-d93b-4ef5-a298-e8165821ec5a",
+      "name": "ver claro"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\n// Função auxiliar para normalizar texto (remove acentos e deixa minúsculo)\nconst normalizar = (str) => str.normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").replace(/[^\\w]/g, \"\").toLowerCase();\n\nfunction pegarBlocoVivo() {\n  const tituloBusca = normalizar(\"Operadora Vivo\") || normalizar(\"Vivo\");\n  const regexH2 = /<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi;\n  let match;\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      const fim = resto.search(/<div class=[\"']bg-gray-800|$/i);\n      return html.substring(match.index, inicio + (fim >= 0 ? fim : resto.length));\n    }\n  }\n  return null;\n}\n\nconst blocoVivo = pegarBlocoVivo();\n\nif (!cpf_id || !blocoVivo || blocoVivo.toUpperCase().includes(\"NÃO ENCONTRAMOS RESULTADOS\")) {\n  return [];\n}\n\n// Captura cada bloco de telefone (cada um termina com <br> ou próximo <p><strong>TELEFONE:)\nconst regexRegistro = /<p[^>]*><strong>TELEFONE:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>([\\s\\S]*?)(?=<p[^>]*><strong>TELEFONE:|$)/gi;\n\nconst registros = [];\nlet matchRegistro;\nwhile ((matchRegistro = regexRegistro.exec(blocoVivo)) !== null) {\n  const blocoTelefone = matchRegistro[0] + matchRegistro[2]; // inclui o primeiro TELEFONE\n\n  // Função auxiliar para extrair um campo específico\n  const extrair = (chave) => {\n    const regex = new RegExp(`<strong>\\\\s*${chave}\\\\s*:\\\\s*<\\/strong>\\\\s*<span[^>]*>([^<]+)<\\/span>`, 'i');\n    const m = regex.exec(blocoTelefone);\n    let valor = m ? m[1].trim() : null;\n    if (valor && valor.toUpperCase() === \"SEM RESULTADO\") {\n      valor = null;\n    }\n    return valor;\n  };\n\n  const telefone = extrair(\"TELEFONE\");\n  if (!telefone) continue; // ignora se não tiver telefone\n\n  const registro = {\n    cpf_id,\n    telefone,\n    data_primeira_recarga: extrair(\"DATA PRIMEIR RECARGA NA LINHA\"),\n    data_ultima_recarga:   extrair(\"DATA ULTIMA RECARGA NA LINHA\"),\n    plano:                 extrair(\"DESCRIÇÃO DA PLATAFORMA\"),\n    uf:                    extrair(\"SIGLA UF\"),\n    data_instalacao:       extrair(\"DATA INSTALAÇÃO\"),\n    telefone_anterior:     extrair(\"TELEFONE ANTERIOR\"),\n    descricao_estado_linha: extrair(\"DESCRIÇÃO DO ESTADO DA LINHA\"),\n    descricao_produto:     extrair(\"DESCRIÇÃO DO PRODUTO\"),\n    descricao_email:       extrair(\"DESCRIÇÃO DO EMAIL\"),\n    data_vigencia_inclusao: extrair(\"DATA VIGENCIA DA INCLUSÃO\"),\n    endereco:              extrair(\"ENDEREÇO\"),\n    numero_endereco:       extrair(\"NÚMERO\"),\n    complemento:           extrair(\"COMPLEMENTO\"),\n    bairro:                extrair(\"BAIRRO\"),\n    cep:                   extrair(\"CEP\"),\n    maior_atraso:          extrair(\"MAIOR ATRASO\"),\n    menor_atraso:          extrair(\"MENOR ATRASO\"),\n    flag_divida:           extrair(\"FLAG DIVIDA\"),\n    ano_mes_contrato:      extrair(\"ANO/MES/CONTA\"),\n    valor_fatura:          extrair(\"VALOR DA FATURA\")\n  };\n\n  // Campos que não aparecem no HTML atual → deixamos null (compatibilidade com tabela)\n  registro.cpf = null;\n  registro.numero = null;               // não tem \"NÚMERO\" solto fora do endereço\n  registro.tipo_pessoa = null;\n  registro.nome_assinante = null;\n  registro.tipo_endereco = null;\n\n  registros.push(registro);\n}\n\nif (registros.length === 0) {\n  return [];\n}\n\nreturn registros.map(r => ({ json: r }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        2448
+      ],
+      "id": "80192413-3c01-4a60-8046-3b14db3b12f9",
+      "name": "vivo"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\nfunction normalizar(str) {\n  return str.normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").replace(/[^\\w]/g, \"\").toLowerCase();\n}\n\nfunction pegarBlocoSocios() {\n  const tituloBusca = normalizar(\"Empresas Associadas (SÓCIO)\");\n  const regexH2 = /<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi;\n  let match;\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      const fim = resto.search(/<div class=[\"']bg-gray-800|$/i);\n      return html.substring(match.index, inicio + (fim >= 0 ? fim : resto.length));\n    }\n  }\n  return null;\n}\n\nconst blocoSocios = pegarBlocoSocios();\n\nif (!cpf_id || !blocoSocios || blocoSocios.toUpperCase().includes(\"NÃO ENCONTRAMOS RESULTADOS\")) {\n  return [];\n}\n\nconst regexSocio = /<p[^>]*><strong>CNPJ:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>([\\s\\S]*?)(?=<p[^>]*><strong>CNPJ:|$|<br>)/gi;\n\nconst socios = [];\nlet matchSocio;\nwhile ((matchSocio = regexSocio.exec(blocoSocios)) !== null) {\n  const bloco = matchSocio[0] + matchSocio[2];\n\n  function extrair(chave) {\n    const regex = new RegExp(`<strong>\\\\s*${chave}\\\\s*:\\\\s*<\\/strong>\\\\s*<span[^>]*>([^<]+)<\\/span>`, 'i');\n    const m = regex.exec(bloco);\n    let valor = m ? m[1].trim() : null;\n    if (valor && valor.toUpperCase() === \"SEM RESULTADO\") return null;\n    return valor;\n  }\n\n  const cnpj = extrair(\"CNPJ\");\n  if (!cnpj) continue;\n\n  const registro = {\n    cpf_id,\n    cnpj,\n    identificador_socio: extrair(\"IDENTIFICADOR SOCIO\"),\n    qualificacao_socio: extrair(\"QUALIFICAÇÃO DO SOCIO\"),\n    data_entrada_sociedade: extrair(\"DATA ENTRADA SOCIEDADE\"),\n    representante_legal: extrair(\"REPRESENTANTE LEGAL\"),\n    nome_representante: extrair(\"NOME DO REPRESENTANTE\"),\n    qualificacao_representante_legal: extrair(\"QUALIFICAÇÃO REPRESENTANTE LEGAL\"),\n    faixa_etaria: extrair(\"FAIXA ETARIA\")\n  };\n\n  socios.push(registro);\n}\n\nif (socios.length === 0) return [];\n\nreturn socios.map(s => ({ json: s }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        1440
+      ],
+      "id": "5bc20a24-e0e3-452b-a0a0-cffab181e441",
+      "name": "empresas socio"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1af380d5-c1f9-414f-9dfc-336c95c5bfc9",
+              "leftValue": "={{ $json.cnpj }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        1440
+      ],
+      "id": "626322d2-0460-482d-b9f0-6b6a4e11f51b",
+      "name": "ver empresas socio"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": {
+          "__rl": true,
+          "value": "base_empresa_socio",
+          "mode": "list",
+          "cachedResultName": "base_empresa_socio"
+        },
+        "dataMode": "defineBelow",
+        "columnToMatchOn": "cpf_id",
+        "valueToMatchOn": "={{ $json.cpf_id }}",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "cnpj",
+              "value": "={{ $json.cnpj }}"
+            },
+            {
+              "column": "identificador_socio",
+              "value": "={{ $json.identificador_socio }}"
+            },
+            {
+              "column": "qualificacao_socio",
+              "value": "={{ $json.qualificacao_socio }}"
+            },
+            {
+              "column": "data_entrada_sociedade",
+              "value": "={{ $json.data_entrada_sociedade }}"
+            },
+            {
+              "column": "representante_legal",
+              "value": "={{ $json.representante_legal }}"
+            },
+            {
+              "column": "nome_representante",
+              "value": "={{ $json.nome_representante }}"
+            },
+            {
+              "column": "qualificacao_representante_legal",
+              "value": "={{ $json.qualificacao_representante_legal }}"
+            },
+            {
+              "column": "faixa_etaria",
+              "value": "={{ $json.faixa_etaria }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        1440
+      ],
+      "id": "f0ca3cd5-b15d-4159-8213-cb8f6f76edd7",
+      "name": "inserir empresas socio",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_vacina\n(\n  cpf_id,\n  cor,\n  cns,\n  mae,\n  nome_vacina,\n  descricao_vacina,\n  lote_vacina,\n  grupo_atendimento,\n  data_aplicacao,\n  status,\n  nome_estabelecimento,\n  aplicador_vacina,\n  uf,\n  municipio,\n  bairro,\n  cep\n)\nVALUES\n(\n  {{$json.cpf_id}},\n  {{$json.cor ? \"'\" + $json.cor + \"'\" : 'NULL'}},\n  {{$json.cns ? \"'\" + $json.cns + \"'\" : 'NULL'}},\n  {{$json.mae ? \"'\" + $json.mae + \"'\" : 'NULL'}},\n  '{{$json.nome_vacina}}',\n  {{$json.descricao_vacina ? \"'\" + $json.descricao_vacina + \"'\" : 'NULL'}},\n  {{$json.lote_vacina ? \"'\" + $json.lote_vacina + \"'\" : 'NULL'}},\n  {{$json.grupo_atendimento ? \"'\" + $json.grupo_atendimento + \"'\" : 'NULL'}},\n  {{$json.data_aplicacao ? \"'\" + $json.data_aplicacao + \"'\" : 'NULL'}},\n  {{$json.status ? \"'\" + $json.status + \"'\" : 'NULL'}},\n  {{$json.nome_estabelecimento ? \"'\" + $json.nome_estabelecimento + \"'\" : 'NULL'}},\n  {{$json.aplicador_vacina ? \"'\" + $json.aplicador_vacina + \"'\" : 'NULL'}},\n  {{$json.uf ? \"'\" + $json.uf + \"'\" : 'NULL'}},\n  {{$json.municipio ? \"'\" + $json.municipio + \"'\" : 'NULL'}},\n  {{$json.bairro ? \"'\" + $json.bairro + \"'\" : 'NULL'}},\n  {{$json.cep ? \"'\" + $json.cep + \"'\" : 'NULL'}}\n);\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        1296
+      ],
+      "id": "57727cf4-f215-491c-8c43-945970cdb417",
+      "name": "inserir vacina",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [],
+          "number": [],
+          "string": [
+            {
+              "value1": "={{ $json.cns }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "name": "ver vacina",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        1296
+      ],
+      "id": "c23bcb2e-172c-4fe5-8dc6-b3cf38f68674"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        992
+      ],
+      "id": "80b64832-cf5d-4dd4-aa3a-bf257c8a69ae",
+      "name": "Sticky Note10"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_cnpj_mei\n(\n  cpf_id,\n  cnpj,\n  razao_social,\n  natureza_juridica,\n  qualificacao,\n  capital_social,\n  porte_empresa,\n  ente_federativo\n)\nVALUES\n(\n  {{$json.cpf_id}},\n  '{{$json.cnpj}}',\n  {{$json.razao_social ? \"'\" + $json.razao_social + \"'\" : 'NULL'}},\n  {{$json.natureza_juridica ? \"'\" + $json.natureza_juridica + \"'\" : 'NULL'}},\n  {{$json.qualificacao ? \"'\" + $json.qualificacao + \"'\" : 'NULL'}},\n  {{$json.capital_social !== null ? $json.capital_social : 'NULL'}},\n  {{$json.porte_empresa ? \"'\" + $json.porte_empresa + \"'\" : 'NULL'}},\n  {{$json.ente_federativo ? \"'\" + $json.ente_federativo + \"'\" : \"'SEM RESULTADO'\"}}\n)\nON DUPLICATE KEY UPDATE\n  razao_social = VALUES(razao_social),\n  natureza_juridica = VALUES(natureza_juridica),\n  qualificacao = VALUES(qualificacao),\n  capital_social = VALUES(capital_social),\n  porte_empresa = VALUES(porte_empresa),\n  ente_federativo = VALUES(ente_federativo),\n  updated_at = CURRENT_TIMESTAMP;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        1584
+      ],
+      "id": "b57e59c6-859f-4235-b275-545af8db55f5",
+      "name": "inserir mei",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\n// =============================================\n// 1. ISOLAR BLOCO \"CNPJ MEI\"\n// =============================================\nconst blocoMatch = html.match(\n  /<h2[^>]*>\\s*CNPJ MEI\\s*<\\/h2>([\\s\\S]*?)(?=<div class=\"bg-gray-800|$)/i\n);\n\nif (!blocoMatch) return [];\n\nconst bloco = blocoMatch[1];\n\n// =============================================\n// 2. FUNÇÃO DE EXTRAÇÃO\n// =============================================\nfunction extrair(chave) {\n  const regex = new RegExp(\n    `<strong>${chave}:\\\\s*</strong>\\\\s*<span[^>]*>([^<]*)<\\\\/span>`,\n    'i'\n  );\n  const match = regex.exec(bloco);\n  if (!match) return null;\n\n  const valor = match[1].trim();\n  if (valor === 'SEM INFORMACAO' || valor === 'SEM RESULTADO') return null;\n  return valor;\n}\n\n// =============================================\n// 3. COLETAR DADOS\n// =============================================\nconst cnpj = extrair('CNPJ');\nif (!cnpj) return []; // 🔥 se não tem CNPJ, não gera saída\n\nconst razao_social = extrair('RAZAO SOCIAL');\nconst natureza_juridica = extrair('NATUREZA JURIDICA');\nconst qualificacao = extrair('QUALIFICAÇÃO');\nconst capital_social_raw = extrair('CAPITAL SOCIAL');\nconst porte_empresa = extrair('PORTE DA EMPRESA');\nconst ente_federativo = extrair('ENTE FEDERATIVO');\n\n// Normaliza capital social (1,00 → 1.00)\nlet capital_social = null;\nif (capital_social_raw) {\n  capital_social = parseFloat(\n    capital_social_raw.replace('.', '').replace(',', '.')\n  );\n}\n\n// =============================================\n// 4. SAÍDA PADRÃO N8N\n// =============================================\nreturn [\n  {\n    json: {\n      cpf_id,\n      cnpj,\n      razao_social,\n      natureza_juridica,\n      qualificacao,\n      capital_social,\n      porte_empresa,\n      ente_federativo\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        1584
+      ],
+      "id": "41a69721-f770-48dc-b4cd-1f8298bd66c7",
+      "name": "mei",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f7a0c6c7-3278-4c57-8bd5-b9405d81b14a",
+              "leftValue": "={{ $json.cnpj }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        1584
+      ],
+      "id": "b8dd3721-31ac-4dc5-92e0-f120f92e3101",
+      "name": "ver mei"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        1136
+      ],
+      "id": "668f6beb-654b-47cd-9e70-daaf70a4b15f",
+      "name": "Sticky Note14"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        848
+      ],
+      "id": "bcb73b8f-f91c-4b81-a768-57d5bf21a1f1",
+      "name": "Sticky Note15"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        1568
+      ],
+      "id": "c7e19705-3574-4dc1-abdd-76e911f86b46",
+      "name": "Sticky Note16"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        2000
+      ],
+      "id": "9fbe0559-93b1-4720-935e-7b327b70ecf5",
+      "name": "Sticky Note17"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        2288
+      ],
+      "id": "383736b5-885f-402f-9fb8-a91d8a29539a",
+      "name": "Sticky Note18"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1c339e48-d86e-4341-a294-242437677756",
+              "leftValue": "={{$json.parcela}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        1728
+      ],
+      "id": "af6912dd-aab3-40f2-bd8f-5705578b6acd",
+      "name": "ver auxilio"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_auxilio\n(\n  cpf_id,\n  uf,\n  mes_disponibilizacao,\n  enquadramento,\n  parcela,\n  observacao,\n  valor_beneficio\n)\nVALUES\n(\n  {{$json.cpf_id}},\n  {{$json.uf ? \"'\" + $json.uf + \"'\" : 'NULL'}},\n  {{$json.mes_disponibilizacao ? \"'\" + $json.mes_disponibilizacao + \"'\" : 'NULL'}},\n  {{$json.enquadramento ? \"'\" + $json.enquadramento + \"'\" : 'NULL'}},\n  {{$json.parcela ? \"'\" + $json.parcela + \"'\" : 'NULL'}},\n  {{$json.observacao ? \"'\" + $json.observacao + \"'\" : 'NULL'}},\n  {{$json.valor_beneficio !== null ? $json.valor_beneficio : 'NULL'}}\n)\nON DUPLICATE KEY UPDATE\n  uf = VALUES(uf),\n  mes_disponibilizacao = VALUES(mes_disponibilizacao),\n  enquadramento = VALUES(enquadramento),\n  observacao = VALUES(observacao),\n  valor_beneficio = VALUES(valor_beneficio),\n  updated_at = CURRENT_TIMESTAMP;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        1728
+      ],
+      "id": "9a24bd44-dd08-4aac-836e-dc8329cf1d3c",
+      "name": "inserir auxilio",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        1712
+      ],
+      "id": "43418c03-c6e8-4995-b231-60700646dfea",
+      "name": "Sticky Note19"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        2432
+      ],
+      "id": "4206dc72-f34f-45e1-8c93-33b684d3bb9e",
+      "name": "Sticky Note20"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apipainel.com.br/upload-photo-base64.php",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  cpf_id: $json.cpf_id,\n  cpf: $json.cpf,\n  image_data: $json.image_data,\n  type: $json.type\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -16,
+        0
+      ],
+      "id": "69f3a423-463c-4e5b-baf3-61c9f2f93961",
+      "name": "enviar fotos1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrai fotos de HTML e converte para base64\nconst html = $json.data;\nconst cpf_id = $json.cpf_id;\nconst cpf = $json.cpf;\n\nasync function extrairFotos() {\n  const photos = [];\n  const defaultImage = 'https://st5.depositphotos.com/17433220/73304/i/450/depositphotos_733041150-stock-photo-silhouette-adult-man-male-avatar.jpg';\n\n  console.log(\"=== INÍCIO EXTRAÇÃO ===\");\n\n  // ✅ 1) Cortar o HTML ATÉ a div alvo\n  const stopDiv = '<div class=\"flex flex-wrap justify-center gap-4 mt-8\">';\n  const index = html.indexOf(stopDiv);\n\n  if (index === -1) {\n    console.log(\"❌ Div alvo não encontrada!\");\n    return [];\n  }\n\n  const htmlAteFotos = html.substring(0, index);\n\n  console.log(`📌 HTML da área de fotos capturado: ${htmlAteFotos.length} chars`);\n\n  // ✅ 2) Regex para pegar apenas imagens dentro desse trecho\n  const regexImg = /<img[^>]+src=[\"']?([^\"'\\s>]+)[\"']?/gi;\n  const matches = [...htmlAteFotos.matchAll(regexImg)];\n\n  console.log(`📸 Imagens encontradas antes da div alvo: ${matches.length}`);\n\n  // ✅ 3) Processar somente essas imagens\n  for (const match of matches) {\n    let src = match[1];\n    if (!src || src.trim() === '') continue;\n\n    // Ignora placeholder\n    if (src === defaultImage) continue;\n\n    try {\n      // Base64 direto → só adicionar\n      if (src.startsWith('data:image')) {\n        photos.push({\n          cpf_id,\n          cpf,\n          image_data: src,\n          type: photos.length === 0 ? 'foto' : `foto${photos.length + 1}`\n        });\n        continue;\n      }\n\n      // Senão, baixar imagem via URL\n      const response = await fetch(src);\n      if (!response.ok) throw new Error(`Erro ao baixar imagem: ${response.status}`);\n\n      const buffer = Buffer.from(await response.arrayBuffer());\n      const contentType = response.headers.get('content-type') || 'image/jpeg';\n      const base64Image = `data:${contentType};base64,${buffer.toString('base64')}`;\n\n      photos.push({\n        cpf_id,\n        cpf,\n        image_data: base64Image,\n        type: photos.length === 0 ? 'foto' : `foto${photos.length + 1}`\n      });\n\n    } catch (err) {\n      console.log(`❌ Erro com imagem ${src}: ${err.message}`);\n    }\n  }\n\n  // ✅ 4) Remover duplicadas\n  const fotosUnicas = photos.filter(\n    (f, i, arr) => arr.findIndex(o => o.image_data === f.image_data) === i\n  );\n\n  console.log(`🔥 TOTAL FINAL DE FOTOS: ${fotosUnicas.length}`);\n\n  return fotosUnicas;\n}\n\nreturn await extrairFotos();\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        0
+      ],
+      "id": "23dcc693-330f-4945-a24b-52e9f7481259",
+      "name": "colher fotos1"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        704
+      ],
+      "id": "0a81113f-dc4a-44ce-b44d-3cf7cb421540",
+      "name": "Sticky Note21"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bf74e3f5-2f6c-4eb2-a9c8-3cca45590689",
+              "leftValue": "={{ $json.pis }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        720
+      ],
+      "id": "88c0a7d0-1625-4bb4-801d-69c47226c381",
+      "name": "ver pis"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\n// =============================================\n// 1. PEGAR BLOCO \"Senhas Vazadas no Email\"\n// =============================================\nconst blocoMatch = html.match(\n  /<h2[^>]*>[\\s\\S]*?Senhas Vazadas no Email[\\s\\S]*?<\\/h2>([\\s\\S]*?)(?=<div class=\"bg-gray-800|$)/i\n);\n\nif (!blocoMatch) {\n  return [];\n}\n\nconst conteudo = blocoMatch[1];\n\n// =============================================\n// 2. DIVIDIR EM REGISTROS (cada EMAIL)\n// =============================================\nconst partes = conteudo.split(/<strong>EMAIL:\\s*<\\/strong>/i);\npartes.shift(); // remove lixo antes do primeiro EMAIL\n\nconst resultados = [];\n\npartes.forEach(parte => {\n  let email = null;\n  let senha = null;\n\n  // ---------------------------------------------\n  // EMAIL VISÍVEL\n  // ---------------------------------------------\n  const emailMatch = parte.match(/<span[^>]*>([^<@]+@[^<]+)<\\/span>/i);\n  if (emailMatch && emailMatch[1]) {\n    email = emailMatch[1].trim().toLowerCase();\n  }\n\n  // ---------------------------------------------\n  // EMAIL OFUSCADO (Cloudflare)\n  // ---------------------------------------------\n  if (!email) {\n    const cfMatch = parte.match(/data-cfemail=[\"']([a-f0-9]+)[\"']/i);\n    if (cfMatch && cfMatch[1]) {\n      const cfemail = cfMatch[1];\n      let decoded = '';\n      const key = parseInt(cfemail.substr(0, 2), 16);\n      for (let i = 2; i < cfemail.length; i += 2) {\n        decoded += String.fromCharCode(\n          parseInt(cfemail.substr(i, 2), 16) ^ key\n        );\n      }\n      if (decoded.includes('@')) {\n        email = decoded.toLowerCase();\n      }\n    }\n  }\n\n  // ---------------------------------------------\n  // SENHA\n  // ---------------------------------------------\n  const senhaMatch = parte.match(\n    /<strong>SENHA:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>/i\n  );\n  if (senhaMatch && senhaMatch[1]) {\n    senha = senhaMatch[1].trim();\n  }\n\n  // ---------------------------------------------\n  // SE TEM EMAIL + SENHA → SALVA\n  // ---------------------------------------------\n  if (email && senha) {\n    resultados.push({\n      json: {\n        cpf_id,\n        email,\n        senha\n      }\n    });\n  }\n});\n\nreturn resultados;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        2016
+      ],
+      "id": "9009d13a-c46c-4bab-8f16-5b62578e9e40",
+      "name": "senha email",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f8a1b1f3-a8d5-4d31-a23b-71044eade089",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        2016
+      ],
+      "id": "65b29cfd-0af7-4d8a-9b6f-8027c5e5b862",
+      "name": "ver senha email"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_senha_email (email, senha, cpf_id)\nVALUES (\n  {{ $json.email ? \"'\" + $json.email + \"'\" : 'NULL' }},\n  {{ $json.senha ? \"'\" + $json.senha + \"'\" : 'NULL' }},\n  {{ $json.cpf_id ? $json.cpf_id : 'NULL' }}\n)\nON DUPLICATE KEY UPDATE\n  cpf_id = VALUES(cpf_id),\n  updated_at = CURRENT_TIMESTAMP;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        2016
+      ],
+      "id": "c91e1e70-94e4-4939-8bfd-69757294652b",
+      "name": "inserir senha email",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f8a1b1f3-a8d5-4d31-a23b-71044eade089",
+              "leftValue": "={{ $json.senha }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        2160
+      ],
+      "id": "8d0d1dd4-b863-4e72-9540-fed6b8ad2fe0",
+      "name": "ver senha cpf"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\n// =============================================\n// 1. BLOCO \"Senhas Vazadas do CPF\"\n// =============================================\nconst blocoMatch = html.match(\n  /<h2[^>]*>[\\s\\S]*?Senhas Vazadas do CPF[\\s\\S]*?<\\/h2>([\\s\\S]*?)(?=<div class=\"bg-gray-800|$)/i\n);\n\nif (!blocoMatch) return [];\n\nconst conteudo = blocoMatch[1];\n\n// =============================================\n// 2. REGISTROS INDIVIDUAIS\n// =============================================\nconst partes = conteudo.split(/<strong>CPF:\\s*<\\/strong>/i);\npartes.shift();\n\nconst resultados = [];\n\npartes.forEach(parte => {\n  let cpf = null;\n  let senha = null;\n\n  // CPF\n  const cpfMatch = parte.match(/<span[^>]*>(\\d{11})<\\/span>/);\n  if (cpfMatch) cpf = cpfMatch[1];\n\n  // SENHA\n  const senhaMatch = parte.match(\n    /<strong>SENHA:\\s*<\\/strong>\\s*<span[^>]*>([^<]+)<\\/span>/i\n  );\n  if (senhaMatch) senha = senhaMatch[1].trim();\n\n  // SALVAR\n  if (cpf && senha) {\n    resultados.push({\n      json: {\n        cpf_id,\n        cpf,\n        senha\n      }\n    });\n  }\n});\n\nreturn resultados;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        2160
+      ],
+      "id": "510e6d16-9e09-445f-a490-02def97a931f",
+      "name": "senha cpf"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_senha_cpf (cpf_id, cpf, senha)\nVALUES (\n  {{ $json.cpf_id }},\n  '{{ $json.cpf }}',\n  '{{ $json.senha }}'\n)\nON DUPLICATE KEY UPDATE\n  updated_at = CURRENT_TIMESTAMP;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        2160
+      ],
+      "id": "176949f0-3fb9-4729-ad53-366a6f8bdedf",
+      "name": "inserir senha cpf",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        2144
+      ],
+      "id": "98f893e5-98dc-41a8-87c0-06976cdc1d25",
+      "name": "Sticky Note22"
+    },
+    {
+      "parameters": {
+        "content": "\n",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        416
+      ],
+      "id": "70a020e3-968d-4b35-ab37-d36ba85a184c",
+      "name": "Sticky Note8"
+    },
+    {
+      "parameters": {
+        "content": "\n",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        560
+      ],
+      "id": "d62254be-30f3-4eb3-ab05-12490602a411",
+      "name": "Sticky Note9"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": {
+          "__rl": true,
+          "value": "base_vivo",
+          "mode": "list",
+          "cachedResultName": "base_vivo"
+        },
+        "dataMode": "defineBelow",
+        "columnToMatchOn": "cpf_id",
+        "valueToMatchOn": "=  {{ $json.cpf_id }}",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "telefone",
+              "value": "={{ $json.telefone }}"
+            },
+            {
+              "column": "data_primeira_recarga",
+              "value": "={{ $json.data_primeira_recarga }}"
+            },
+            {
+              "column": "data_ultima_recarga",
+              "value": "={{ $json.data_ultima_recarga }}"
+            },
+            {
+              "column": "plano",
+              "value": "={{ $json.plano }}"
+            },
+            {
+              "column": "numero",
+              "value": "={{ $json.numero }}"
+            },
+            {
+              "column": "uf",
+              "value": "={{ $json.uf }}"
+            },
+            {
+              "column": "tipo_pessoa",
+              "value": "={{ $json.tipo_pessoa }}"
+            },
+            {
+              "column": "data_instalacao",
+              "value": "={{ $json.data_instalacao }}"
+            },
+            {
+              "column": "telefone_anterior",
+              "value": "={{ $json.telefone_anterior }}"
+            },
+            {
+              "column": "descricao_estado_linha",
+              "value": "={{ $json.descricao_estado_linha }}"
+            },
+            {
+              "column": "descricao_produto",
+              "value": "={{ $json.descricao_produto }}"
+            },
+            {
+              "column": "nome_assinante",
+              "value": "={{ $json.nome_assinante }}"
+            },
+            {
+              "column": "descricao_email",
+              "value": "={{ $json.descricao_email }}"
+            },
+            {
+              "column": "tipo_endereco",
+              "value": "={{ $json.tipo_endereco }}"
+            },
+            {
+              "column": "data_vigencia_inclusao",
+              "value": "={{ $json.data_vigencia_inclusao }}"
+            },
+            {
+              "column": "endereco",
+              "value": "={{ $json.endereco }}"
+            },
+            {
+              "column": "numero_endereco",
+              "value": "={{ $json.numero_endereco }}"
+            },
+            {
+              "column": "complemento",
+              "value": "={{ $json.complemento }}"
+            },
+            {
+              "column": "bairro",
+              "value": "={{ $json.bairro }}"
+            },
+            {
+              "column": "cep",
+              "value": "={{ $json.cep }}"
+            },
+            {
+              "column": "maior_atraso",
+              "value": "={{ $json.maior_atraso }}"
+            },
+            {
+              "column": "menor_atraso",
+              "value": "={{ $json.menor_atraso }}"
+            },
+            {
+              "column": "flag_divida",
+              "value": "={{ $json.flag_divida }}"
+            },
+            {
+              "column": "ano_mes_contrato",
+              "value": "={{ $json.ano_mes_contrato }}"
+            },
+            {
+              "column": "valor_fatura",
+              "value": "={{ $json.valor_fatura }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        2448
+      ],
+      "id": "32beef64-d9ef-47eb-a500-447f20224777",
+      "name": "inserir vivo",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        1856
+      ],
+      "id": "e7d723f4-4013-4275-bba1-51bbda03c5f3",
+      "name": "Sticky Note24"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        2864
+      ],
+      "id": "53051ed7-ea4b-49b1-b5a9-28d9dfff899c",
+      "name": "Sticky Note23"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        1280
+      ],
+      "id": "b3151c0f-0ff4-4ded-af78-418a42a2b614",
+      "name": "Sticky Note25"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        1424
+      ],
+      "id": "460be37e-8f81-4c6c-9c29-0abe0f80f49f",
+      "name": "Sticky Note26"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        3296
+      ],
+      "id": "84de1b32-b014-4259-a978-f802c32c870e",
+      "name": "Sticky Note27"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        3152
+      ],
+      "id": "80c50386-bdac-4600-ab96-d0aef536a781",
+      "name": "Sticky Note28"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": {
+          "__rl": true,
+          "value": "base_cpf",
+          "mode": "list",
+          "cachedResultName": "base_cpf"
+        },
+        "dataMode": "defineBelow",
+        "columnToMatchOn": "id",
+        "valueToMatchOn": "={{ $json.cpf_id }}",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "pis",
+              "value": "={{ $json.pis }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        720
+      ],
+      "id": "9fc70ef0-27b7-45fa-b19f-4ef111fb6dad",
+      "name": "inserir pis",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b939a1da-7fa5-46f4-abc0-ea01000f2409",
+              "leftValue": "={{ $json.cnpj }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        2880
+      ],
+      "id": "ab86e61e-e1e8-4686-b48e-637e76879c85",
+      "name": "ver rais"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_rais\n(\n  cpf_id,\n  cpf,\n  cnpj,\n  razao_social,\n  situacao,\n  data_entrega,\n  data_admissao,\n  data_desligamento,\n  data_cadastro,\n  faixa_renda\n)\nVALUES\n(\n  {{ $json.cpf_id }},\n  '{{ $json.cpf }}',\n  '{{ $json.cnpj }}',\n  '{{ $json.razao_social }}',\n  '{{ $json.situacao }}',\n  '{{ $json.data_entrega }}',\n  '{{ $json.data_admissao }}',\n  {{ $json.data_desligamento ? \"'\" + $json.data_desligamento + \"'\" : 'NULL' }},\n  '{{ $json.data_cadastro }}',\n  {{ $json.faixa_renda ? \"'\" + $json.faixa_renda + \"'\" : 'NULL' }}\n);\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        2880
+      ],
+      "id": "b48b8e77-f410-4364-a711-4f7a48ef1381",
+      "name": "inserir rais",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        3008
+      ],
+      "id": "5025982e-f9a3-43d9-bf74-6c7c77b01f50",
+      "name": "Sticky Note29"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\n// Normaliza texto (igual ao Claro)\nfunction normalizar(str) {\n  return str\n    .normalize(\"NFD\")\n    .replace(/[\\u0300-\\u036f]/g, \"\")\n    .replace(/[^\\w]/g, \"\")\n    .toLowerCase();\n}\n\n// Localiza o bloco \"Documento\"\nfunction pegarBlocoDocumento() {\n  const tituloBusca = normalizar(\"Documento\");\n\n  const regexH2 = /<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi;\n  let match;\n\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      const fim = resto.search(/<div class=[\"']bg-gray-800|$/i);\n\n      return html.substring(\n        match.index,\n        inicio + (fim >= 0 ? fim : resto.length)\n      );\n    }\n  }\n  return null;\n}\n\nconst blocoDocumento = pegarBlocoDocumento();\n\n// Validações padrão\nif (\n  !cpf_id ||\n  !blocoDocumento ||\n  blocoDocumento.toUpperCase().includes(\"NÃO ENCONTRAMOS RESULTADOS\")\n) {\n  return [];\n}\n\n// Função genérica de extração\nfunction extrair(label) {\n  const regex = new RegExp(\n    `<strong>${label}:\\\\s*<\\\\/strong>\\\\s*<span[^>]*>([^<]*)<\\\\/span>`,\n    \"i\"\n  );\n  const match = blocoDocumento.match(regex);\n  return match ? match[1].trim() : null;\n}\n\n// Monta registro único\nconst registro = {\n  cpf_id,\n  numero_identificador: extrair(\"NUMERO IDENTIFICADOR\"),\n  data_expedicao: extrair(\"DATA EXPEDIÇÃO\"),\n  orgao_emissor: extrair(\"ORGÃO EMISSOR\"),\n  sigla_uf: extrair(\"SIGLA_UF\")\n};\n\n// Se não tiver número identificador, não salva\nif (!registro.numero_identificador) {\n  return [];\n}\n\nreturn [\n  {\n    json: registro\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        3024
+      ],
+      "id": "103b1cc6-6eb6-4f3d-a45a-2dfc148b8c14",
+      "name": "documento"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b939a1da-7fa5-46f4-abc0-ea01000f2409",
+              "leftValue": "={{ $json.numero_identificador }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        3024
+      ],
+      "id": "a746a690-320a-41c6-b8bb-63b6cbaeaf0f",
+      "name": "ver documento"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_documento\n(\n  cpf_id,\n  numero_identificador,\n  data_expedicao,\n  orgao_emissor,\n  sigla_uf\n)\nVALUES\n(\n  {{$json.cpf_id}},\n  {{$json.numero_identificador ? \"'\" + $json.numero_identificador + \"'\" : \"NULL\"}},\n  {{$json.data_expedicao ? \"'\" + $json.data_expedicao + \"'\" : \"NULL\"}},\n  {{$json.orgao_emissor ? \"'\" + $json.orgao_emissor + \"'\" : \"NULL\"}},\n  {{$json.sigla_uf ? \"'\" + $json.sigla_uf + \"'\" : \"NULL\"}}\n)\nON DUPLICATE KEY UPDATE\n  data_expedicao = VALUES(data_expedicao),\n  orgao_emissor  = VALUES(orgao_emissor),\n  sigla_uf       = VALUES(sigla_uf),\n  updated_at     = CURRENT_TIMESTAMP;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        3024
+      ],
+      "id": "02f5546a-faf0-4640-8ae9-a59fe25fb759",
+      "name": "inserir documento",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_dividas_ativas (\n    cpf_id,\n    uf_devedor,\n    numero_inscricao,\n    tipo_situacao_inscricao,\n    situacao_inscricao,\n    receita_principal,\n    data_inscricao,\n    indicador_ajuizado,\n    valor_consolidado\n) VALUES (\n    {{ $json.cpf_id }},\n    '{{ $json.uf_devedor }}',\n    '{{ $json.numero_inscricao }}',\n    '{{ $json.tipo_situacao_inscricao }}',\n    '{{ $json.situacao_inscricao }}',\n    '{{ $json.receita_principal }}',\n    STR_TO_DATE('{{ $json.data_inscricao }}', '%d/%m/%Y'),\n    '{{ $json.indicador_ajuizado }}',\n    {{ $json.valor_consolidado }}\n);\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        3168
+      ],
+      "id": "3ba85483-3d24-4efb-897b-2ee7b30a4483",
+      "name": "inserir dividas ativas",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b939a1da-7fa5-46f4-abc0-ea01000f2409",
+              "leftValue": "={{ $json.numero_inscricao }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        3168
+      ],
+      "id": "96c4799d-35f6-4517-8684-e41109e78264",
+      "name": "ver dividas"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\n// --- função genérica para pegar o bloco pelo H2 ---\nfunction pegarBlocoDividas() {\n  const normalizar = (str) =>\n    str\n      .normalize(\"NFD\")\n      .replace(/[\\u0300-\\u036f]/g, \"\")\n      .replace(/[^\\w]/g, \"\")\n      .toLowerCase();\n\n  const tituloBusca = normalizar(\"Dividas Ativas\") || normalizar(\"SIDA\");\n\n  const regexH2 = new RegExp('<h2[^>]*>([\\\\s\\\\S]*?)<\\\\/h2>', 'gi');\n  let match;\n\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      const fim = resto.search(/<div class=[\"']bg-gray-800|$/i);\n      return html.substring(match.index, inicio + (fim >= 0 ? fim : resto.length));\n    }\n  }\n  return null;\n}\n\nconst bloco = pegarBlocoDividas();\n\nif (!cpf_id || !bloco || bloco.toUpperCase().includes(\"NÃO ENCONTRAMOS RESULTADOS\")) {\n  return [];\n}\n\n// --- regex de cada conjunto de dívida ---\nconst regexDivida = new RegExp(\n  '<strong>UF DEVEDOR:\\\\s*<\\\\/strong>\\\\s*<span[^>]*>([^<]+)<\\\\/span>[\\\\s\\\\S]*?' +\n  '<strong>NÚMERO DE INSCRIÇÃO:\\\\s*<\\\\/strong>\\\\s*<span[^>]*>([^<]+)<\\\\/span>[\\\\s\\\\S]*?' +\n  '<strong>TIPO DE SITUAÇÃO INSCRIÇÃO:\\\\s*<\\\\/strong>\\\\s*<span[^>]*>([^<]+)<\\\\/span>[\\\\s\\\\S]*?' +\n  '<strong>SITUAÇÃO INSCRIÇÃO:\\\\s*<\\\\/strong>\\\\s*<span[^>]*>([^<]+)<\\\\/span>[\\\\s\\\\S]*?' +\n  '<strong>RECEITA PRINCIPAL:\\\\s*<\\\\/strong>\\\\s*<span[^>]*>([^<]+)<\\\\/span>[\\\\s\\\\S]*?' +\n  '<strong>DATA INSCRIÇÃO:\\\\s*<\\\\/strong>\\\\s*<span[^>]*>([^<]+)<\\\\/span>[\\\\s\\\\S]*?' +\n  '<strong>INDICADOR AJUIZADO:\\\\s*<\\\\/strong>\\\\s*<span[^>]*>([^<]+)<\\\\/span>[\\\\s\\\\S]*?' +\n  '<strong>VALOR CONSOLIDADO:\\\\s*<\\\\/strong>\\\\s*<span[^>]*>([^<]+)<\\\\/span>',\n  'gi'\n);\n\nconst registros = [];\nlet m;\n\nwhile ((m = regexDivida.exec(bloco)) !== null) {\n  registros.push({\n    cpf_id,\n    uf_devedor: m[1].trim(),\n    numero_inscricao: m[2].trim(),\n    tipo_situacao_inscricao: m[3].trim(),\n    situacao_inscricao: m[4].trim(),\n    receita_principal: m[5].trim(),\n    data_inscricao: m[6].trim(), // converte no SQL se quiser\n    indicador_ajuizado: m[7].trim(),\n    valor_consolidado: parseFloat(m[8].replace(',', '.'))\n  });\n}\n\nif (registros.length === 0) {\n  return [];\n}\n\nreturn registros.map(r => ({ json: r }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        3168
+      ],
+      "id": "d0b2a3fa-f341-4dd0-9ef2-6ece919f58b5",
+      "name": "dividas ativas"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        2576
+      ],
+      "id": "52dd946b-7127-4c58-a804-4f8571ffa0ff",
+      "name": "Sticky Note30"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\nfunction pegarBlocoOI() {\n  const normalizar = (str) =>\n    str\n      .normalize(\"NFD\")\n      .replace(/[\\u0300-\\u036f]/g, \"\")\n      .replace(/[^\\w]/g, \"\")\n      .toLowerCase();\n\n  const tituloBusca = normalizar(\"Operadora OI\");\n\n  const regexH2 = /<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi;\n  let match;\n\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      const fim = resto.search(/<div class=[\"']bg-gray-800|$/i);\n\n      return html.substring(\n        match.index,\n        inicio + (fim >= 0 ? fim : resto.length)\n      );\n    }\n  }\n  return null;\n}\n\nconst blocoOI = pegarBlocoOI();\n\nif (!cpf_id || !blocoOI || blocoOI.toUpperCase().includes(\"NÃO ENCONTRAMOS RESULTADOS\")) {\n  return [];\n}\n\n// Função utilitária para capturar campo\nfunction pegarCampo(label) {\n  const regex = new RegExp(\n    `<strong>${label}:\\\\s*<\\\\/strong>\\\\s*<span[^>]*>([^<]*)<\\\\/span>`,\n    'i'\n  );\n  const match = blocoOI.match(regex);\n  if (!match) return null;\n\n  const valor = match[1].trim();\n\n  if (\n    valor.toLowerCase() === 'sem resultado' ||\n    valor.toLowerCase() === 'n/a'\n  ) {\n    return null;\n  }\n\n  return valor;\n}\n\n// Monta registro final\nconst registro = {\n  cpf_id,\n  numero_contrato: pegarCampo('NÚMERO CONTRATO'),\n  nome: pegarCampo('NOME'),\n  email: pegarCampo('EMAIL'),\n  plano_atual: pegarCampo('PLANO ATUAL'),\n  debito_automatico: pegarCampo('DEBITO AUTOMATICO'),\n  status: pegarCampo('STATUS'),\n  tipo: pegarCampo('TIPO'),\n  titular: pegarCampo('TITULAR'),\n  existe_falha_aberta: pegarCampo('EXISTE FALHA ABERTA'),\n  quantidade_contratos: pegarCampo('QUANTIDADE CONTRATOS'),\n  numero_contrato_fisico: pegarCampo('NÚMERO CONTRATO FISICO'),\n  pode_habilitar_confianca: pegarCampo('PODE SOLICITAR HABILITAÇÃO EM CONFIANÇA'),\n  cpf_cnpj: pegarCampo('CPF/CNPJ'),\n  bairro_instalacao: pegarCampo('BAIRRO INSTALAÇÃO'),\n  cidade_instalacao: pegarCampo('CIDADE INSTALAÇÃO'),\n  legado: pegarCampo('LEGADO'),\n  modalidade: pegarCampo('MODALIDADE')\n};\n\n// remove campos vazios\nObject.keys(registro).forEach(\n  key => registro[key] === null && delete registro[key]\n);\n\nreturn [{ json: registro }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        2592
+      ],
+      "id": "3306731f-7288-4933-aa16-95e7a7001e51",
+      "name": "oi"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5b19694f-ba34-48a4-a233-267198727297",
+              "leftValue": "={{ $json.numero_contrato }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        2592
+      ],
+      "id": "34c2789e-68de-40fb-98ca-37582c25638c",
+      "name": "ver oi"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_operadora_oi (\n  cpf_id,\n  numero_contrato,\n  nome,\n  email,\n  plano_atual,\n  debito_automatico,\n  status,\n  tipo,\n  titular,\n  existe_falha_aberta,\n  quantidade_contratos,\n  numero_contrato_fisico,\n  pode_habilitar_confianca,\n  cpf_cnpj,\n  bairro_instalacao,\n  cidade_instalacao,\n  legado,\n  modalidade\n) VALUES (\n  {{ $json.cpf_id }},\n  {{ $json.numero_contrato ? \"'\" + $json.numero_contrato + \"'\" : \"NULL\" }},\n  {{ $json.nome ? \"'\" + $json.nome + \"'\" : \"NULL\" }},\n  {{ $json.email ? \"'\" + $json.email + \"'\" : \"NULL\" }},\n  {{ $json.plano_atual ? \"'\" + $json.plano_atual + \"'\" : \"NULL\" }},\n  {{ $json.debito_automatico ? \"'\" + $json.debito_automatico + \"'\" : \"NULL\" }},\n  {{ $json.status ? \"'\" + $json.status + \"'\" : \"NULL\" }},\n  {{ $json.tipo ? \"'\" + $json.tipo + \"'\" : \"NULL\" }},\n  {{ $json.titular ? \"'\" + $json.titular + \"'\" : \"NULL\" }},\n  {{ $json.existe_falha_aberta !== undefined ? $json.existe_falha_aberta : \"NULL\" }},\n  {{ $json.quantidade_contratos !== undefined ? $json.quantidade_contratos : \"NULL\" }},\n  {{ $json.numero_contrato_fisico ? \"'\" + $json.numero_contrato_fisico + \"'\" : \"NULL\" }},\n  {{ $json.pode_habilitar_confianca !== undefined ? $json.pode_habilitar_confianca : \"NULL\" }},\n  {{ $json.cpf_cnpj ? \"'\" + $json.cpf_cnpj + \"'\" : \"NULL\" }},\n  {{ $json.bairro_instalacao ? \"'\" + $json.bairro_instalacao + \"'\" : \"NULL\" }},\n  {{ $json.cidade_instalacao ? \"'\" + $json.cidade_instalacao + \"'\" : \"NULL\" }},\n  {{ $json.legado ? \"'\" + $json.legado + \"'\" : \"NULL\" }},\n  {{ $json.modalidade ? \"'\" + $json.modalidade + \"'\" : \"NULL\" }}\n)\nON DUPLICATE KEY UPDATE\n  nome = VALUES(nome),\n  email = VALUES(email),\n  plano_atual = VALUES(plano_atual),\n  debito_automatico = VALUES(debito_automatico),\n  status = VALUES(status),\n  tipo = VALUES(tipo),\n  titular = VALUES(titular),\n  existe_falha_aberta = VALUES(existe_falha_aberta),\n  quantidade_contratos = VALUES(quantidade_contratos),\n  numero_contrato_fisico = VALUES(numero_contrato_fisico),\n  pode_habilitar_confianca = VALUES(pode_habilitar_confianca),\n  cpf_cnpj = VALUES(cpf_cnpj),\n  bairro_instalacao = VALUES(bairro_instalacao),\n  cidade_instalacao = VALUES(cidade_instalacao),\n  legado = VALUES(legado),\n  modalidade = VALUES(modalidade);\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        2592
+      ],
+      "id": "1ae4fc1f-6911-437c-8e4c-96a7cc7be4ca",
+      "name": "inserir oi",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5b19694f-ba34-48a4-a233-267198727297",
+              "leftValue": "={{ $json.telefone }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        2448
+      ],
+      "id": "50b89ef0-d323-4b47-bc2b-2eecd405a27d",
+      "name": "ver vivo"
+    },
+    {
+      "parameters": {
+        "content": "verificar",
+        "height": 128,
+        "width": 704,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        2720
+      ],
+      "id": "3d6443f4-88c3-4986-af37-1241fea1f4e0",
+      "name": "Sticky Note31"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $json.data || '';\nconst cpf_id = $json.cpf_id || $json.id;\n\nfunction pegarBlocoTim() {\n  const normalizar = (str) =>\n    str\n      .normalize(\"NFD\")\n      .replace(/[\\u0300-\\u036f]/g, \"\")\n      .replace(/[^\\w]/g, \"\")\n      .toLowerCase();\n\n  const tituloBusca = normalizar(\"Operadora Tim\");\n\n  const regexH2 = /<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi;\n  let match;\n\n  while ((match = regexH2.exec(html)) !== null) {\n    if (normalizar(match[1]).includes(tituloBusca)) {\n      const inicio = match.index + match[0].length;\n      const resto = html.substring(inicio);\n      const fim = resto.search(/<div class=[\"']bg-gray-800|$/i);\n      return html.substring(match.index, inicio + (fim >= 0 ? fim : resto.length));\n    }\n  }\n  return null;\n}\n\nconst blocoTim = pegarBlocoTim();\n\nif (!cpf_id || !blocoTim || blocoTim.toUpperCase().includes(\"NÃO ENCONTRAMOS RESULTADOS\")) {\n  return [];\n}\n\n// Função auxiliar pra pegar campo por label\nfunction pegarCampo(label) {\n  const regex = new RegExp(\n    `<strong>${label}:\\\\s*<\\\\/strong>\\\\s*<span[^>]*>([^<]*)<\\\\/span>`,\n    \"i\"\n  );\n  const match = blocoTim.match(regex);\n  return match ? match[1].trim() : null;\n}\n\nconst registro = {\n  cpf_id,\n  tipo_logradouro: pegarCampo(\"TIPO LOGRADOURO\"),\n  logradouro: pegarCampo(\"LOGRADOURO\"),\n  numero: pegarCampo(\"NÚMERO\"),\n  complemento: pegarCampo(\"COMPLEMENTO\"),\n  bairro: pegarCampo(\"BAIRRO\"),\n  cidade: pegarCampo(\"CIDADE\"),\n  uf: pegarCampo(\"UF\"),\n  cep: pegarCampo(\"CEP\"),\n  ddd: pegarCampo(\"DDD\"),\n  telefone: pegarCampo(\"TEL\")\n};\n\n// Se não tiver telefone e endereço, ignora\nif (!registro.telefone && !registro.logradouro) {\n  return [];\n}\n\nreturn [{ json: registro }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        2736
+      ],
+      "id": "3efae9bd-ecea-4180-b08d-b4ae1b1d2b46",
+      "name": "tim"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5b19694f-ba34-48a4-a233-267198727297",
+              "leftValue": "={{ $json.telefone }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        2736
+      ],
+      "id": "c7fc9ceb-b108-4861-bc2a-8793b406e50c",
+      "name": "ver tim"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO base_operadora_tim\n(\n  cpf_id,\n  tipo_logradouro,\n  logradouro,\n  numero,\n  complemento,\n  bairro,\n  cidade,\n  uf,\n  cep,\n  ddd,\n  telefone\n)\nVALUES\n(\n  {{ $json.cpf_id }},\n  {{ $json.tipo_logradouro ? `'${$json.tipo_logradouro}'` : 'NULL' }},\n  {{ $json.logradouro ? `'${$json.logradouro}'` : 'NULL' }},\n  {{ $json.numero ? `'${$json.numero}'` : 'NULL' }},\n  {{ $json.complemento ? `'${$json.complemento}'` : 'NULL' }},\n  {{ $json.bairro ? `'${$json.bairro}'` : 'NULL' }},\n  {{ $json.cidade ? `'${$json.cidade}'` : 'NULL' }},\n  {{ $json.uf ? `'${$json.uf}'` : 'NULL' }},\n  {{ $json.cep ? `'${$json.cep}'` : 'NULL' }},\n  {{ $json.ddd ? `'${$json.ddd}'` : 'NULL' }},\n  {{ $json.telefone ? `'${$json.telefone}'` : 'NULL' }}\n);\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        224,
+        2736
+      ],
+      "id": "35561a51-3299-4415-9dd5-3934be7b6620",
+      "name": "inserir tim",
+      "credentials": {
+        "mySql": {
+          "id": "ffT7dFE1DyowXa0a",
+          "name": "MySQL account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "telefone": {
+      "main": [
+        [
+          {
+            "node": "ver telefone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "email": {
+      "main": [
+        [
+          {
+            "node": "ver email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "vacina": {
+      "main": [
+        [
+          {
+            "node": "ver vacina",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "auxilio": {
+      "main": [
+        [
+          {
+            "node": "ver auxilio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "rais": {
+      "main": [
+        [
+          {
+            "node": "ver rais",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "inss": {
+      "main": [
+        [
+          {
+            "node": "ver inss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cpf_id": {
+      "main": [
+        [
+          {
+            "node": "dados_gerais",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "dados basicos": {
+      "main": [
+        [
+          {
+            "node": "cpf_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "url": {
+      "main": [
+        [
+          {
+            "node": "base",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "dados_gerais",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "url",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "dados_gerais": {
+      "main": [
+        [
+          {
+            "node": "telefone",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "vacina",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "empresas socio",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "mei",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "dividas ativas",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "auxilio",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "rais",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "inss",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "senha email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "senha cpf",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "parentes",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "cns",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "conjuge",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "certidao",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "endereco",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "gestao",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "claro",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "vivo",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "colher fotos1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "pis",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "documento",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "oi",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "tim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "base": {
+      "main": [
+        [
+          {
+            "node": "dados basicos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parentes": {
+      "main": [
+        [
+          {
+            "node": "verificador",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "verificador": {
+      "main": [
+        [
+          {
+            "node": "inserir parente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cns": {
+      "main": [
+        [
+          {
+            "node": "ver cns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "conjuge": {
+      "main": [
+        [
+          {
+            "node": "ver conjuge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "certidao": {
+      "main": [
+        [
+          {
+            "node": "ver certidao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "gestao": {
+      "main": [
+        [
+          {
+            "node": "ver gestao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "pis": {
+      "main": [
+        [
+          {
+            "node": "ver pis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "endereco": {
+      "main": [
+        [
+          {
+            "node": "ver endereco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver certidao": {
+      "main": [
+        [
+          {
+            "node": "inserir certidao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver cns": {
+      "main": [
+        [
+          {
+            "node": "inserir cns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver gestao": {
+      "main": [
+        [
+          {
+            "node": "inserir gestao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver telefone": {
+      "main": [
+        [
+          {
+            "node": "inserir telefone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver email": {
+      "main": [
+        [
+          {
+            "node": "inserir email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver endereco": {
+      "main": [
+        [
+          {
+            "node": "inserir endereco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "claro": {
+      "main": [
+        [
+          {
+            "node": "ver claro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver inss": {
+      "main": [
+        [
+          {
+            "node": "inserir inss",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver claro": {
+      "main": [
+        [
+          {
+            "node": "inserir claro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "vivo": {
+      "main": [
+        [
+          {
+            "node": "ver vivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "empresas socio": {
+      "main": [
+        [
+          {
+            "node": "ver empresas socio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver empresas socio": {
+      "main": [
+        [
+          {
+            "node": "inserir empresas socio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver vacina": {
+      "main": [
+        [
+          {
+            "node": "inserir vacina",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mei": {
+      "main": [
+        [
+          {
+            "node": "ver mei",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver mei": {
+      "main": [
+        [
+          {
+            "node": "inserir mei",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver auxilio": {
+      "main": [
+        [
+          {
+            "node": "inserir auxilio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "colher fotos1": {
+      "main": [
+        [
+          {
+            "node": "enviar fotos1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver pis": {
+      "main": [
+        [
+          {
+            "node": "inserir pis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "senha email": {
+      "main": [
+        [
+          {
+            "node": "ver senha email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver senha email": {
+      "main": [
+        [
+          {
+            "node": "inserir senha email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver senha cpf": {
+      "main": [
+        [
+          {
+            "node": "inserir senha cpf",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "senha cpf": {
+      "main": [
+        [
+          {
+            "node": "ver senha cpf",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver rais": {
+      "main": [
+        [
+          {
+            "node": "inserir rais",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "documento": {
+      "main": [
+        [
+          {
+            "node": "ver documento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver documento": {
+      "main": [
+        [
+          {
+            "node": "inserir documento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver dividas": {
+      "main": [
+        [
+          {
+            "node": "inserir dividas ativas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "dividas ativas": {
+      "main": [
+        [
+          {
+            "node": "ver dividas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "oi": {
+      "main": [
+        [
+          {
+            "node": "ver oi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver oi": {
+      "main": [
+        [
+          {
+            "node": "inserir oi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver vivo": {
+      "main": [
+        [
+          {
+            "node": "inserir vivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "tim": {
+      "main": [
+        [
+          {
+            "node": "ver tim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ver tim": {
+      "main": [
+        [
+          {
+            "node": "inserir tim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "d87c340f-fe41-41d8-8c82-858b7c4987bf",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "bbf3d9d15f392ea437db996509eca0a8a7c5b94cebe219529594595c7ff69c0c"
+  },
+  "id": "K4edHLsACCazMWzh",
+  "tags": []
+}
