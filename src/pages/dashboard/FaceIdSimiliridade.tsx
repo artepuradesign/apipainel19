@@ -183,7 +183,7 @@ const FaceIdSimiliridade = () => {
             <div className="relative rounded-lg border bg-gradient-to-br from-primary/10 via-background to-accent/10 shadow-sm transition-all duration-300">
               {hasDiscount ? (
                 <div className="absolute -top-2 left-1/2 z-10 -translate-x-1/2 pointer-events-none">
-                  <Badge className="border-0 bg-gradient-to-r from-emerald-500 to-green-500 px-2.5 py-1 text-xs font-bold text-white shadow-lg">
+                  <Badge className="border-0 bg-gradient-to-r from-primary to-accent px-2.5 py-1 text-xs font-bold text-primary-foreground shadow-lg">
                     OFF
                   </Badge>
                 </div>
