@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download, Loader2, Search, Users } from 'lucide-react';
+import { Download, Loader2, Search, Settings, Users } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { toast } from 'sonner';
 import SimpleTitleBar from '@/components/dashboard/SimpleTitleBar';
@@ -79,7 +79,6 @@ const FaceIdSimiliridade = () => {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [results, setResults] = useState<SimilarityResult[]>([]);
-  const [nomeCpfFilter, setNomeCpfFilter] = useState('');
   const [search, setSearch] = useState('');
   const [selectedResult, setSelectedResult] = useState<SimilarityResult | null>(null);
   const [apiResponse, setApiResponse] = useState<Record<string, unknown> | null>(null);
@@ -128,13 +127,7 @@ const FaceIdSimiliridade = () => {
     setProcessing(true);
     await startProcessing(10000);
 
-    const filteredBase = mockPeopleBase.filter((person) => {
-      const term = nomeCpfFilter.toLowerCase().trim();
-      if (!term) return true;
-      return person.nome.toLowerCase().includes(term) || person.cpf.toLowerCase().includes(term);
-    });
-
-    const generated = filteredBase
+    const generated = mockPeopleBase
       .map((person, index) => ({
         id: Date.now() + index,
         nome: person.nome,
@@ -173,22 +166,6 @@ const FaceIdSimiliridade = () => {
         useModuleMetadata={false}
       />
 
-      <Card>
-        <CardContent className="p-4 sm:p-5">
-          <div className="flex items-center justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Plano Ativo</p>
-              <p className="text-sm sm:text-base font-semibold truncate">{userPlan}</p>
-            </div>
-            <div className="text-right shrink-0">
-              {hasDiscount ? <p className="text-xs text-muted-foreground line-through">R$ {modulePrice.toFixed(2)}</p> : null}
-              <p className="text-lg sm:text-xl font-bold">R$ {finalPrice.toFixed(2)}</p>
-              <p className="text-[10px] text-muted-foreground">Valor do módulo {MODULE_ID}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {!guidelinesClosed ? (
         <FaceImageGuidelines
           collapsed={guidelinesCollapsed}
@@ -200,17 +177,44 @@ const FaceIdSimiliridade = () => {
         />
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
-        <Card>
-          <CardHeader>
+      <div className="mt-4 md:mt-6 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-4 md:gap-6 lg:gap-8">
+        <Card className="w-full">
+          <CardHeader className="pb-4">
+            <div className="relative rounded-lg border bg-gradient-to-br from-primary/10 via-background to-accent/10 shadow-sm transition-all duration-300">
+              {hasDiscount ? (
+                <div className="absolute -top-2 left-1/2 z-10 -translate-x-1/2 pointer-events-none">
+                  <Badge className="border-0 bg-gradient-to-r from-primary to-accent px-2.5 py-1 text-xs font-bold text-primary-foreground shadow-lg">
+                    OFF
+                  </Badge>
+                </div>
+              ) : null}
+              <div className="relative p-3.5 md:p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                    <div className="h-10 w-1 flex-shrink-0 rounded-full bg-gradient-to-b from-primary to-accent" />
+                    <div className="min-w-0">
+                      <p className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Plano Ativo</p>
+                      <h3 className="truncate text-sm font-bold sm:text-base">{userPlan}</h3>
+                    </div>
+                  </div>
+                  <div className="flex flex-shrink-0 flex-col items-end gap-0.5">
+                    {hasDiscount ? <span className="text-[10px] text-muted-foreground line-through sm:text-xs">R$ {modulePrice.toFixed(2)}</span> : null}
+                    <span className="whitespace-nowrap bg-gradient-to-r from-primary to-accent bg-clip-text text-xl font-bold text-transparent md:text-2xl">
+                      R$ {finalPrice.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <div className="flex items-center gap-2">
               <Badge variant="secondary">faceid-similiridade</Badge>
               <Badge variant="outline">ID {MODULE_ID}</Badge>
             </div>
             <CardTitle>Buscar por semelhança</CardTitle>
             <CardDescription>Envie a foto e retorne até 20 correspondências acima de 70%.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 px-3 sm:px-6">
+
             <div className="space-y-2">
               <Label htmlFor="facePhoto">Foto para busca</Label>
               <Input id="facePhoto" type="file" accept="image/*" onChange={(e) => handleUpload(e.target.files?.[0] || null)} />
@@ -229,10 +233,6 @@ const FaceIdSimiliridade = () => {
                 <p className="text-sm text-muted-foreground">Preview da imagem enviada.</p>
               )}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="filterNameCpf">Filtro por nome/CPF</Label>
-              <Input id="filterNameCpf" value={nomeCpfFilter} onChange={(e) => setNomeCpfFilter(e.target.value)} placeholder="Opcional para refinar antes da busca" />
-            </div>
             <div className="flex justify-end">
               <Button onClick={handleProcess} disabled={processing} className="w-full sm:w-auto">
                 {processing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
@@ -250,9 +250,12 @@ const FaceIdSimiliridade = () => {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="w-full">
           <CardHeader>
-            <CardTitle>Resposta da API</CardTitle>
+            <CardTitle className="flex items-center text-lg sm:text-xl lg:text-2xl">
+              <Settings className="mr-2 h-4 w-4 flex-shrink-0 sm:h-5 sm:w-5" />
+              <span className="truncate">Resposta da API</span>
+            </CardTitle>
             <CardDescription>JSON dos resultados retornados.</CardDescription>
           </CardHeader>
           <CardContent>
