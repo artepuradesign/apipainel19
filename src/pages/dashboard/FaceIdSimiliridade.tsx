@@ -16,10 +16,10 @@ import { useUserSubscription } from '@/hooks/useUserSubscription';
 import FaceImageGuidelines from '@/components/faceid/FaceImageGuidelines';
 import FaceProcessingAdvancedModal from '@/components/faceid/FaceProcessingAdvancedModal';
 import { useFaceProcessingAnimation } from '@/hooks/useFaceProcessingAnimation';
-import FaceQualityHero from '@/components/faceid/FaceQualityHero';
 
 const MODULE_ID = 191;
 const MAX_RESULTS = 20;
+const GUIDELINES_CLOSED_STORAGE_KEY = 'faceid-similiridade-guidelines-closed';
 
 type SimilarityResult = {
   id: number;
@@ -83,6 +83,11 @@ const FaceIdSimiliridade = () => {
   const [search, setSearch] = useState('');
   const [selectedResult, setSelectedResult] = useState<SimilarityResult | null>(null);
   const [apiResponse, setApiResponse] = useState<Record<string, unknown> | null>(null);
+  const [guidelinesCollapsed, setGuidelinesCollapsed] = useState(false);
+  const [guidelinesClosed, setGuidelinesClosed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(GUIDELINES_CLOSED_STORAGE_KEY) === 'true';
+  });
   const { modalOpen, progress, startProcessing } = useFaceProcessingAnimation();
 
   const currentModule = useMemo(
@@ -184,10 +189,16 @@ const FaceIdSimiliridade = () => {
         </CardContent>
       </Card>
 
-      <FaceQualityHero
-        title="Foto frontal e sem oclusões aumenta a precisão"
-        description="A busca por similaridade depende de uma face bem enquadrada, nítida e iluminada para retornar os melhores matches."
-      />
+      {!guidelinesClosed ? (
+        <FaceImageGuidelines
+          collapsed={guidelinesCollapsed}
+          onToggleCollapsed={() => setGuidelinesCollapsed((prev) => !prev)}
+          onClose={() => {
+            setGuidelinesClosed(true);
+            window.localStorage.setItem(GUIDELINES_CLOSED_STORAGE_KEY, 'true');
+          }}
+        />
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
         <Card>
@@ -251,8 +262,6 @@ const FaceIdSimiliridade = () => {
           </CardContent>
         </Card>
       </div>
-
-      <FaceImageGuidelines />
 
       <Card>
         <CardHeader>
