@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Delaunator from 'delaunator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 
@@ -32,6 +33,38 @@ const fallbackPoints = (): Landmark[] =>
       z: Math.sin(angle * 3) * 0.04,
     };
   });
+
+const loadMediaPipe = async () => {
+  const importFromUrl = new Function('url', 'return import(url)') as (url: string) => Promise<any>;
+  return importFromUrl('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/vision_bundle.mjs');
+};
+
+const buildDenseMesh = (points: Landmark[]) => {
+  const edges = new Set<string>();
+  const triangles = Delaunator.from(points, (p) => p.x, (p) => p.y).triangles;
+
+  const addEdge = (a: number, b: number) => {
+    const i = Math.min(a, b);
+    const j = Math.max(a, b);
+    if (i === j) return;
+    edges.add(`${i}-${j}`);
+  };
+
+  connections.forEach((group) => {
+    for (let i = 0; i < group.length - 1; i++) addEdge(group[i], group[i + 1]);
+  });
+
+  for (let i = 0; i < triangles.length; i += 3) {
+    const a = triangles[i];
+    const b = triangles[i + 1];
+    const c = triangles[i + 2];
+    addEdge(a, b);
+    addEdge(b, c);
+    addEdge(c, a);
+  }
+
+  return Array.from(edges).map((edge) => edge.split('-').map(Number) as [number, number]);
+};
 
 const cssHslToHsla = (token: string, alpha: number) => {
   const [h, s, l] = token
@@ -95,6 +128,7 @@ const FaceProcessingAdvancedModal = ({
   const imageRef = useRef<HTMLImageElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [landmarks, setLandmarks] = useState<Landmark[]>([]);
+  const [meshEdges, setMeshEdges] = useState<[number, number][]>([]);
   const [foregroundToken, setForegroundToken] = useState('0 0% 100%');
 
   useEffect(() => {
@@ -103,8 +137,42 @@ const FaceProcessingAdvancedModal = ({
   }, []);
 
   useEffect(() => {
-    if (!open || !imageSrc) return;
-    setLandmarks(fallbackPoints());
+    const detect = async () => {
+      if (!open || !imageSrc) return;
+
+      const img = new Image();
+      img.src = imageSrc;
+      await new Promise((resolve) => {
+        img.onload = resolve;
+        img.onerror = resolve;
+      });
+
+      let points = fallbackPoints();
+
+      try {
+        const { FaceLandmarker, FilesetResolver } = await loadMediaPipe();
+        const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm');
+        const detector = await FaceLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath:
+              'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+            delegate: 'GPU',
+          },
+          runningMode: 'IMAGE',
+          numFaces: 1,
+        });
+        const result = detector.detect(img);
+        const found = result.faceLandmarks?.[0] as Landmark[] | undefined;
+        if (found && found.length > 100) points = found;
+      } catch {
+        points = fallbackPoints();
+      }
+
+      setLandmarks(points);
+      setMeshEdges(buildDenseMesh(points));
+    };
+
+    detect();
   }, [open, imageSrc]);
 
   const pointOrder = useMemo(() => {
@@ -151,9 +219,6 @@ const FaceProcessingAdvancedModal = ({
     });
 
     const { phase, ratio } = getPhaseFromProgress(progress);
-    const normalized = Math.max(0, Math.min(progress / 100, 1));
-    const scanProgress = normalized <= 0.5 ? normalized * 2 : (1 - normalized) * 2;
-
     const pointsVisibleCount = phase === 'points' ? Math.floor(landmarks.length * ratio) : landmarks.length;
     const visiblePoints = new Uint8Array(landmarks.length);
     for (let i = 0; i < pointsVisibleCount; i++) {
@@ -162,10 +227,9 @@ const FaceProcessingAdvancedModal = ({
       visiblePoints[item.i] = 1;
     }
 
-    const totalConnectionSegments = connections.reduce((acc, group) => acc + Math.max(0, group.length - 1), 0);
-    const visibleConnectionSegments =
-      phase === 'mesh' ? Math.floor(totalConnectionSegments * ratio) : phase === 'done' ? totalConnectionSegments : 0;
-    const scanY = imageBounds.y + scanProgress * imageBounds.height;
+    const meshVisibleCount = phase === 'mesh' ? Math.floor(meshEdges.length * ratio) : phase === 'done' ? meshEdges.length : 0;
+    const scanLineProgress = phase === 'points' || phase === 'mesh' ? ratio : 1;
+    const scanY = imageBounds.y + scanLineProgress * imageBounds.height;
 
     for (let i = 0; i < landmarks.length; i++) {
       if (!visiblePoints[i]) continue;
@@ -173,45 +237,67 @@ const FaceProcessingAdvancedModal = ({
       const { x, y } = toCanvasPoint(p);
       if (phase === 'points' && y > scanY + 10) continue;
 
-      const pulseBoost = phase === 'points' ? Math.max(0, 1 - Math.abs((y - scanY) / 20)) : 0;
-      const pointRadius = 0.8 + pulseBoost * 0.4;
+      const pulseBoost = phase === 'points' ? Math.max(0, 1 - Math.abs((y - scanY) / 24)) : 0;
+      const pointRadius = 0.85 + pulseBoost * 0.85;
 
       ctx.beginPath();
-      ctx.fillStyle = cssHslToHsla(foregroundToken, phase === 'done' ? 0.95 : 0.85);
+      ctx.fillStyle = cssHslToHsla(foregroundToken, phase === 'done' ? 0.98 : 0.9);
       ctx.shadowBlur = 0;
       ctx.arc(x, y, pointRadius, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    if (visibleConnectionSegments > 0) {
+    if (meshVisibleCount > 0) {
       ctx.strokeStyle = cssHslToHsla(foregroundToken, 0.6);
-      ctx.lineWidth = 0.6;
-      let drawnSegments = 0;
+      ctx.lineWidth = 0.45;
+
+      for (let i = 0; i < meshVisibleCount; i++) {
+        const [a, b] = meshEdges[i];
+        if (!visiblePoints[a] || !visiblePoints[b]) continue;
+        const pa = landmarks[a];
+        const pb = landmarks[b];
+        const cpa = toCanvasPoint(pa);
+        const cpb = toCanvasPoint(pb);
+        const yA = cpa.y;
+        const yB = cpb.y;
+        if ((phase === 'points' || phase === 'mesh') && (yA > scanY + 10 || yB > scanY + 10)) continue;
+
+        ctx.beginPath();
+        ctx.moveTo(cpa.x, yA);
+        ctx.lineTo(cpb.x, yB);
+        ctx.stroke();
+      }
 
       for (let g = 0; g < connections.length; g++) {
         const group = connections[g];
         for (let i = 0; i < group.length - 1; i++) {
-          if (drawnSegments >= visibleConnectionSegments) break;
-
           const a = group[i];
           const b = group[i + 1];
-          if (!visiblePoints[a] || !visiblePoints[b]) {
-            drawnSegments += 1;
-            continue;
-          }
-
-          const cpa = toCanvasPoint(landmarks[a]);
-          const cpb = toCanvasPoint(landmarks[b]);
-          if ((phase === 'points' || phase === 'mesh') && (cpa.y > scanY + 10 || cpb.y > scanY + 10)) {
-            drawnSegments += 1;
-            continue;
-          }
+          if (!visiblePoints[a] || !visiblePoints[b]) continue;
+          const pa = landmarks[a];
+          const pb = landmarks[b];
+          const cpa = toCanvasPoint(pa);
+          const cpb = toCanvasPoint(pb);
+          const yA = cpa.y;
+          const yB = cpb.y;
+          if ((phase === 'points' || phase === 'mesh') && (yA > scanY + 10 || yB > scanY + 10)) continue;
 
           ctx.beginPath();
-          ctx.moveTo(cpa.x, cpa.y);
-          ctx.lineTo(cpb.x, cpb.y);
+          ctx.moveTo(cpa.x, yA);
+          ctx.lineTo(cpb.x, yB);
           ctx.stroke();
-          drawnSegments += 1;
+        }
+      }
+
+      if (phase === 'mesh' || phase === 'done') {
+        ctx.fillStyle = cssHslToHsla(foregroundToken, 0.5);
+        for (let i = 0; i < landmarks.length; i++) {
+          if (!visiblePoints[i]) continue;
+          const cp = landmarks[i];
+          const cpoint = toCanvasPoint(cp);
+          ctx.beginPath();
+          ctx.arc(cpoint.x, cpoint.y, 0.72, 0, Math.PI * 2);
+          ctx.fill();
         }
       }
     }
@@ -224,33 +310,7 @@ const FaceProcessingAdvancedModal = ({
       ctx.lineTo(imageBounds.x + imageBounds.width, scanY);
       ctx.stroke();
     }
-  }, [open, landmarks, pointOrder, progress, foregroundToken]);
-
-  useEffect(() => {
-    if (!open || landmarks.length === 0) return;
-
-    const tick = () => {
-      if (!canvasRef.current || !imageRef.current) return;
-
-      const canvas = canvasRef.current;
-      const image = imageRef.current;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      const width = image.clientWidth || 1;
-      const height = image.clientHeight || 1;
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
-      }
-
-      const event = new Event('resize');
-      window.dispatchEvent(event);
-    };
-
-    const rafId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(rafId);
-  }, [open, landmarks, progress]);
+  }, [open, landmarks, meshEdges, pointOrder, progress, foregroundToken]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
