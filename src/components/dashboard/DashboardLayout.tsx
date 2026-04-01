@@ -181,6 +181,8 @@ const DashboardLayout = ({
     return subItems.some(subItem => location.pathname === subItem.path);
   };
 
+  const hideAnimatedBackground = location.pathname === '/dashboard/faceid-similiridade';
+
   const handleSubmenuMouseEnter = () => {
     // Manter submenu aberto quando mouse está sobre ele
   };
@@ -202,7 +204,7 @@ const DashboardLayout = ({
 
   return (
     <div className={`${theme === 'dark' ? 'dark' : ''} min-h-screen relative overflow-x-hidden`}>
-      <GlobalAnimatedBackground variant="dashboard" />
+      {!hideAnimatedBackground ? <GlobalAnimatedBackground variant="dashboard" /> : null}
       
       {/* Notificações de fundo para toasts */}
       <div className="fixed bottom-4 right-4 z-50">
