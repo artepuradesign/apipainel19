@@ -6,9 +6,6 @@ import { ArrowLeft, Package } from "lucide-react";
 import * as Icons from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useApiModules } from "@/hooks/useApiModules";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { useLiquidGlass } from "@/contexts/LiquidGlassContext";
-import { cn } from "@/lib/utils";
 
 interface SimpleTitleBarProps {
   title: string;
@@ -29,26 +26,6 @@ const SimpleTitleBar = ({
 }: SimpleTitleBarProps) => {
   const location = useLocation();
   const { modules } = useApiModules();
-  const isMobile = useIsMobile();
-  const { config: liquidGlassConfig } = useLiquidGlass();
-
-  const glassStyle = useMemo<React.CSSProperties>(() => {
-    if (!liquidGlassConfig.enabled) return {};
-    const filter = `blur(${liquidGlassConfig.strength + liquidGlassConfig.extraBlur}px) saturate(${liquidGlassConfig.tintSaturation}%) contrast(${liquidGlassConfig.contrast}%) brightness(${liquidGlassConfig.brightness}%) invert(${liquidGlassConfig.invert}%) hue-rotate(${liquidGlassConfig.tintHue}deg)`;
-    const bgAlpha = liquidGlassConfig.backgroundAlpha / 100;
-    const specHighAlpha = liquidGlassConfig.edgeSpecularity / 200;
-    const specLowAlpha = liquidGlassConfig.edgeSpecularity / 300;
-    const borderAlpha = liquidGlassConfig.backgroundAlpha / 200;
-    return {
-      borderRadius: `${liquidGlassConfig.cornerRadius}px`,
-      backdropFilter: filter,
-      WebkitBackdropFilter: filter,
-      background: `rgba(255,255,255,${bgAlpha})`,
-      boxShadow: `0 0 ${liquidGlassConfig.softness}px rgba(255,255,255,${specHighAlpha}), inset 0 1px 0 rgba(255,255,255,${specLowAlpha})`,
-      opacity: liquidGlassConfig.opacity / 100,
-      border: `1px solid rgba(255,255,255,${borderAlpha})`,
-    };
-  }, [liquidGlassConfig]);
 
   const normalizedPath = useMemo(() => {
     const path = (location?.pathname || "").trim();
@@ -161,12 +138,7 @@ const SimpleTitleBar = ({
   const iconElement = renderLargeIcon();
 
   return (
-    <Card
-      className={cn(
-        liquidGlassConfig.enabled && "bg-transparent border-transparent"
-      )}
-      style={liquidGlassConfig.enabled ? glassStyle : undefined}
-    >
+    <Card className="bg-card border-border">
       <CardHeader className="px-4 md:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-center gap-3 flex-1 min-w-0">
