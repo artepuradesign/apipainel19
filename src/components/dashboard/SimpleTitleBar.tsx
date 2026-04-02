@@ -124,8 +124,8 @@ const SimpleTitleBar = ({
               className="shrink-0 p-1 rounded-lg border"
           style={moduleColor ? getIconStyles() : undefined}
         >
-          <ModuleIcon 
-                className="h-5 w-5 md:h-6 md:w-6" 
+              <ModuleIcon 
+                className="h-6 w-6 md:h-7 md:w-7" 
             style={moduleColor ? { color: moduleColor } : undefined}
           />
         </div>
@@ -152,7 +152,7 @@ const SimpleTitleBar = ({
             <ArrowLeft className="h-3.5 w-3.5" />
           </Button>
 
-          <div className="ml-auto flex items-center gap-1.5 min-w-0">
+          <div className="ml-auto flex items-center gap-3 min-w-0">
             {right ? right : null}
             <div className="min-w-0 text-right">
               <CardTitle className="text-sm md:text-base">
