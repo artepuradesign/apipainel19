@@ -152,19 +152,18 @@ const SimpleTitleBar = ({
             <ArrowLeft className="h-3.5 w-3.5" />
           </Button>
 
-          <div className="flex-1 min-w-0">
-            <CardTitle className="text-sm md:text-base">
-              <span className="truncate">{displayTitle}</span>
-            </CardTitle>
-            {displaySubtitle ? (
-              <p className="hidden sm:block text-xs md:text-sm text-muted-foreground mt-1 line-clamp-2 md:line-clamp-none">
-                {displaySubtitle}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="ml-auto flex items-center gap-1.5 min-w-0">
             {right ? right : null}
+            <div className="min-w-0 text-right">
+              <CardTitle className="text-sm md:text-base">
+                <span className="truncate">{displayTitle}</span>
+              </CardTitle>
+              {displaySubtitle ? (
+                <p className="hidden sm:block text-xs md:text-sm text-muted-foreground mt-1 line-clamp-2 md:line-clamp-none">
+                  {displaySubtitle}
+                </p>
+              ) : null}
+            </div>
             {iconElement}
           </div>
         </div>
