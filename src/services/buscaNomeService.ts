@@ -38,11 +38,11 @@ export const buscaNomeService = {
       // Usar proxy PHP no backend próprio para evitar CORS
       const PROXY_URL = 'https://api.apipainel.com.br/busca/busca-nome.php';
       
-      // Preparar body da requisição como JSON
-      const body: { nome?: string; link_manual?: string } = {};
+      // Preparar body como x-www-form-urlencoded (compatível com backend legado)
+      const params = new URLSearchParams();
       
       if (linkManual && (linkManual.includes('pastebin.sbs') || linkManual.includes('api.fdxapis.us'))) {
-        body.link_manual = linkManual;
+        params.set('link_manual', linkManual);
         console.log('📎 [BUSCA_NOME] Usando link manual:', linkManual);
       } else {
         if (!nome || nome.trim().length < 5) {
@@ -52,17 +52,17 @@ export const buscaNomeService = {
             error: 'Nome inválido ou muito curto (mínimo 5 caracteres)'
           };
         }
-        body.nome = nome.trim();
+        params.set('nome', nome.trim());
         console.log('📤 [BUSCA_NOME] Enviando nome para consulta via proxy:', nome.trim());
       }
 
       const response = await fetch(PROXY_URL, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
           'Accept': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: params.toString()
       });
 
       console.log('📡 [BUSCA_NOME] Status da resposta:', response.status);
