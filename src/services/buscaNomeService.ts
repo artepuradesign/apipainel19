@@ -1,4 +1,5 @@
 // Serviço para consulta por nome completo via proxy PHP (resolve CORS)
+import { cookieUtils } from '@/utils/cookieUtils';
 
 export interface NomeConsultaResultado {
   nome: string;
@@ -31,13 +32,17 @@ function isLovablePreviewEnvironment(): boolean {
 async function postFormWithXhr(
   url: string,
   body: string,
-  timeoutMs = 95000
+  timeoutMs = 95000,
+  authToken?: string
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url, true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
     xhr.setRequestHeader('Accept', 'application/json');
+    if (authToken) {
+      xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+    }
     xhr.timeout = timeoutMs;
 
     xhr.onload = () => {
@@ -66,6 +71,11 @@ export const buscaNomeService = {
   }> {
     try {
       console.log('🔍 [BUSCA_NOME] Iniciando consulta por nome:', nome || '(link manual)');
+
+      const authToken =
+        cookieUtils.get('session_token') ||
+        cookieUtils.get('api_session_token') ||
+        undefined;
       
       // Usar proxy PHP no backend próprio para evitar CORS
       const PROXY_URL = 'https://api.apipainel.com.br/busca/busca-nome.php';
@@ -88,7 +98,7 @@ export const buscaNomeService = {
         console.log('📤 [BUSCA_NOME] Enviando nome para consulta via proxy:', nome.trim());
       }
 
-      const response = await postFormWithXhr(PROXY_URL, params.toString(), 95000);
+      const response = await postFormWithXhr(PROXY_URL, params.toString(), 95000, authToken);
 
       console.log('📡 [BUSCA_NOME] Status da resposta:', response.status);
 
