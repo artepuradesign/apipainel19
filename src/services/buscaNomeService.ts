@@ -53,6 +53,36 @@ async function postFormWithXhr(
   });
 }
 
+async function postJsonWithXhr(
+  url: string,
+  body: string,
+  timeoutMs = 95000,
+  authToken?: string
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('Content-Type', 'application/json; charset=UTF-8');
+    xhr.setRequestHeader('Accept', 'application/json');
+    if (authToken) {
+      xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+    }
+    xhr.timeout = timeoutMs;
+
+    xhr.onload = () => {
+      resolve({
+        status: xhr.status,
+        body: xhr.responseText ?? ''
+      });
+    };
+
+    xhr.onerror = () => reject(new Error('Falha de rede ao consultar servidor'));
+    xhr.ontimeout = () => reject(new Error('Tempo limite excedido na consulta por nome'));
+
+    xhr.send(body);
+  });
+}
+
 export const buscaNomeService = {
   /**
    * Consulta por nome completo via proxy PHP (evita CORS)
@@ -93,12 +123,65 @@ export const buscaNomeService = {
         console.log('📤 [BUSCA_NOME] Enviando nome para consulta via proxy:', nome.trim());
       }
 
-      let response: { status: number; body: string };
-      try {
-        response = await postFormWithXhr(PRIMARY_URL, params.toString(), 95000, authToken);
-      } catch (primaryError) {
-        console.warn('⚠️ [BUSCA_NOME] Falha no endpoint principal, tentando fallback:', primaryError);
-        response = await postFormWithXhr(FALLBACK_URL, params.toString(), 95000, authToken);
+      const jsonBody = JSON.stringify(
+        linkManual && (linkManual.includes('pastebin.sbs') || linkManual.includes('api.fdxapis.us'))
+          ? { link_manual: linkManual }
+          : { nome: nome.trim() }
+      );
+
+      const attempts: Array<{
+        label: string;
+        run: () => Promise<{ status: number; body: string }>;
+      }> = [
+        {
+          label: 'principal/form',
+          run: () => postFormWithXhr(PRIMARY_URL, params.toString(), 95000, authToken)
+        },
+        {
+          label: 'fallback/form',
+          run: () => postFormWithXhr(FALLBACK_URL, params.toString(), 95000, authToken)
+        },
+        {
+          label: 'fallback/json',
+          run: () => postJsonWithXhr(FALLBACK_URL, jsonBody, 95000, authToken)
+        }
+      ];
+
+      let response: { status: number; body: string } | null = null;
+      let lastTransportError: unknown = null;
+
+      for (const attempt of attempts) {
+        try {
+          const candidate = await attempt.run();
+          console.log(`📡 [BUSCA_NOME] Tentativa ${attempt.label} retornou:`, candidate.status);
+
+          const bodyPreview = (candidate.body || '').slice(0, 300);
+          const isMissingPayloadError =
+            candidate.status === 400 &&
+            (bodyPreview.includes('Nome ou link_manual') || bodyPreview.includes('nome ou link_manual'));
+
+          if (candidate.status >= 200 && candidate.status < 300) {
+            response = candidate;
+            break;
+          }
+
+          if (isMissingPayloadError) {
+            console.warn(`⚠️ [BUSCA_NOME] ${attempt.label} rejeitou payload, tentando próxima estratégia...`);
+            response = candidate;
+            continue;
+          }
+
+          response = candidate;
+        } catch (attemptError) {
+          lastTransportError = attemptError;
+          console.warn(`⚠️ [BUSCA_NOME] Falha de transporte em ${attempt.label}:`, attemptError);
+        }
+      }
+
+      if (!response) {
+        throw (lastTransportError instanceof Error
+          ? lastTransportError
+          : new Error('Falha de rede em todas as tentativas de consulta'));
       }
 
       console.log('📡 [BUSCA_NOME] Status da resposta:', response.status);
