@@ -11,6 +11,9 @@ type FaceProcessingAdvancedModalProps = {
   imageSrc: string | null;
   progress: number;
   title?: string;
+  description?: string;
+  details?: React.ReactNode;
+  showProgress?: boolean;
   onOpenChange: (open: boolean) => void;
 };
 
@@ -123,6 +126,9 @@ const FaceProcessingAdvancedModal = ({
   imageSrc,
   progress,
   title = 'Verificação facial em andamento',
+  description = 'Mapeando landmarks faciais e refinando malha biométrica em tempo real.',
+  details,
+  showProgress = true,
   onOpenChange,
 }: FaceProcessingAdvancedModalProps) => {
   const imageRef = useRef<HTMLImageElement | null>(null);
@@ -323,7 +329,7 @@ const FaceProcessingAdvancedModal = ({
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>Mapeando landmarks faciais e refinando malha biométrica em tempo real.</DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <div className="relative overflow-hidden rounded-md border bg-muted/20">
@@ -343,10 +349,14 @@ const FaceProcessingAdvancedModal = ({
             )}
         </div>
 
-        <div className="space-y-2">
-          <Progress value={progress} className="w-full" />
-          <p className="text-center text-sm text-muted-foreground">Reconstrução facial profissional • {Math.round(progress)}%</p>
-        </div>
+        {showProgress ? (
+          <div className="space-y-2">
+            <Progress value={progress} className="w-full" />
+            <p className="text-center text-sm text-muted-foreground">Reconstrução facial profissional • {Math.round(progress)}%</p>
+          </div>
+        ) : null}
+
+        {details ? <div className="rounded-md border bg-muted/20 p-3 text-sm">{details}</div> : null}
       </DialogContent>
     </Dialog>
   );
