@@ -228,14 +228,20 @@ const FaceProcessingAdvancedModal = ({
     }
 
     const meshVisibleCount = phase === 'mesh' ? Math.floor(meshEdges.length * ratio) : phase === 'done' ? meshEdges.length : 0;
-    const scanLineProgress = phase === 'points' || phase === 'mesh' ? ratio : 1;
-    const scanY = imageBounds.y + scanLineProgress * imageBounds.height;
+    const revealScanY = imageBounds.y + ratio * imageBounds.height;
+    const scanLineProgressLoop =
+      phase === 'points' || phase === 'mesh'
+        ? ratio <= 0.5
+          ? ratio * 2
+          : (1 - ratio) * 2
+        : 1;
+    const scanY = imageBounds.y + scanLineProgressLoop * imageBounds.height;
 
     for (let i = 0; i < landmarks.length; i++) {
       if (!visiblePoints[i]) continue;
       const p = landmarks[i];
       const { x, y } = toCanvasPoint(p);
-      if (phase === 'points' && y > scanY + 10) continue;
+      if (phase === 'points' && y > revealScanY + 10) continue;
 
       const pulseBoost = phase === 'points' ? Math.max(0, 1 - Math.abs((y - scanY) / 24)) : 0;
       const pointRadius = 0.85 + pulseBoost * 0.85;
@@ -260,7 +266,7 @@ const FaceProcessingAdvancedModal = ({
         const cpb = toCanvasPoint(pb);
         const yA = cpa.y;
         const yB = cpb.y;
-        if ((phase === 'points' || phase === 'mesh') && (yA > scanY + 10 || yB > scanY + 10)) continue;
+        if ((phase === 'points' || phase === 'mesh') && (yA > revealScanY + 10 || yB > revealScanY + 10)) continue;
 
         ctx.beginPath();
         ctx.moveTo(cpa.x, yA);
@@ -280,7 +286,7 @@ const FaceProcessingAdvancedModal = ({
           const cpb = toCanvasPoint(pb);
           const yA = cpa.y;
           const yB = cpb.y;
-          if ((phase === 'points' || phase === 'mesh') && (yA > scanY + 10 || yB > scanY + 10)) continue;
+          if ((phase === 'points' || phase === 'mesh') && (yA > revealScanY + 10 || yB > revealScanY + 10)) continue;
 
           ctx.beginPath();
           ctx.moveTo(cpa.x, yA);
