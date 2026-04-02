@@ -22,6 +22,28 @@ export interface NomeConsultaResponse {
   erro?: string;
 }
 
+async function postFormWithXhr(url: string, body: string, timeoutMs = 95000): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.timeout = timeoutMs;
+
+    xhr.onload = () => {
+      resolve({
+        status: xhr.status,
+        body: xhr.responseText ?? ''
+      });
+    };
+
+    xhr.onerror = () => reject(new Error('Falha de rede ao consultar servidor'));
+    xhr.ontimeout = () => reject(new Error('Tempo limite excedido na consulta por nome'));
+
+    xhr.send(body);
+  });
+}
+
 export const buscaNomeService = {
   /**
    * Consulta por nome completo via proxy PHP (evita CORS)
@@ -56,19 +78,12 @@ export const buscaNomeService = {
         console.log('📤 [BUSCA_NOME] Enviando nome para consulta via proxy:', nome.trim());
       }
 
-      const response = await fetch(PROXY_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'Accept': 'application/json'
-        },
-        body: params.toString()
-      });
+      const response = await postFormWithXhr(PROXY_URL, params.toString());
 
       console.log('📡 [BUSCA_NOME] Status da resposta:', response.status);
 
-      if (!response.ok) {
-        const errorText = await response.text();
+      if (response.status < 200 || response.status >= 300) {
+        const errorText = response.body;
         console.error('❌ [BUSCA_NOME] Erro HTTP:', response.status, errorText);
         return {
           success: false,
@@ -77,7 +92,7 @@ export const buscaNomeService = {
       }
 
       // Parse robusto (alguns erros retornam HTML/texto e quebram response.json())
-      const rawText = await response.text();
+      const rawText = response.body;
       let data: NomeConsultaResponse;
       try {
         data = JSON.parse(rawText) as NomeConsultaResponse;
