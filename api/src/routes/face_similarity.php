@@ -38,14 +38,16 @@ try {
     $landmarks = $input['landmarks'] ?? [];
     $limit = isset($input['limit']) ? (int)$input['limit'] : 10;
     $threshold = isset($input['threshold']) ? (float)$input['threshold'] : 70;
+    $gender = $input['gender'] ?? null;
 
     $service = new FaceSimilarityService($datafaceDb);
-    $results = $service->searchByLandmarks($landmarks, $limit, $threshold);
+    $results = $service->searchByLandmarks($landmarks, $limit, $threshold, $gender);
 
     Response::success([
         'total_found' => count($results),
         'max_results' => max(1, min(10, $limit)),
         'threshold' => $threshold,
+        'gender_filter' => $gender,
         'results' => $results,
     ], 'Busca de similaridade finalizada');
 } catch (Exception $e) {
