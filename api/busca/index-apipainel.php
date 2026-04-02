@@ -44,6 +44,19 @@
 </div>
 
 <script>
+function getCookie(name) {
+    const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    return match ? decodeURIComponent(match[2]) : '';
+}
+
+function getAuthToken() {
+    return localStorage.getItem('session_token') ||
+           localStorage.getItem('api_session_token') ||
+           getCookie('session_token') ||
+           getCookie('api_session_token') ||
+           '';
+}
+
 document.getElementById('formConsulta').addEventListener('submit', async e => {
     e.preventDefault();
     const nome = document.getElementById('nome').value.trim();
@@ -57,10 +70,17 @@ document.getElementById('formConsulta').addEventListener('submit', async e => {
     logArea.textContent = 'Iniciando consulta via API Painel...\nEnviando nome para a API...\n';
 
     try {
+        const token = getAuthToken();
+        const headers = {
+            'Content-Type': 'application/json; charset=UTF-8',
+            'Accept': 'application/json'
+        };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
         const res = await fetch('busca-apipainel.php', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `nome=${encodeURIComponent(nome)}`
+            headers,
+            body: JSON.stringify({ nome })
         });
 
         if (!res.ok) throw new Error('Erro na resposta da API');
