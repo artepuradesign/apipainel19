@@ -1,16 +1,44 @@
 <?php
-// busca-nome.php - VERSÃO MELHORADA PARA MUITOS REGISTROS (2025/2026)
+// busca-nome.php - JSON-only
 
 ini_set('memory_limit', '512M');
 ini_set('max_execution_time', '120');
 ini_set('default_socket_timeout', '60');
 
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST, GET");
-header("Access-Control-Allow-Headers: Content-Type");
+header("Access-Control-Allow-Methods: POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization, Accept, Origin, X-Requested-With");
+header("Content-Type: application/json; charset=UTF-8");
 
-$nome         = $_POST['nome'] ?? null;
-$link_manual  = $_POST['link_manual'] ?? null;
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(["status" => false, "erro" => "Método não permitido. Use POST."]);
+    exit();
+}
+
+$contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+if (stripos($contentType, 'application/json') === false) {
+    http_response_code(400);
+    echo json_encode(["status" => false, "erro" => "Payload inválido. Envie somente application/json."]);
+    exit();
+}
+
+$rawInput = file_get_contents('php://input');
+$payload = json_decode($rawInput, true);
+
+if (!is_array($payload)) {
+    http_response_code(400);
+    echo json_encode(["status" => false, "erro" => "JSON inválido na requisição."]);
+    exit();
+}
+
+$nome = isset($payload['nome']) ? trim((string)$payload['nome']) : null;
+$link_manual = isset($payload['link_manual']) ? trim((string)$payload['link_manual']) : null;
 
 $link   = null;
 $output = [];
@@ -42,6 +70,16 @@ if (!$link) {
     $exec = shell_exec($cmd . " 2>&1");
 
     $output = array_filter(explode("\n", trim($exec)));
+
+    if (stripos($exec, 'TELEGRAM_SESSION_INVALID') !== false) {
+        echo json_encode([
+            "status" => false,
+            "erro" => "Sessão do Telegram inválida ou expirada. Atualize a sessão no nome-check.js.",
+            "codigo" => "TELEGRAM_SESSION_INVALID",
+            "log" => $output
+        ]);
+        exit;
+    }
 
     if (preg_match('/LINK_FINAL:\s*(https?:\/\/(?:pastebin\.sbs\/view\/|api\.fdxapis\.us\/temp\/)[^\s]+)/i', $exec, $m)) {
         $link = $m[1];
@@ -312,7 +350,6 @@ file_put_contents(__DIR__ . '/debug_resultados.txt', print_r($resultados, true))
 // ==========================
 // RESPOSTA FINAL
 // ==========================
-header('Content-Type: application/json; charset=utf-8');
 echo json_encode([
     "status"            => true,
     "nome_consultado"   => $nome ?? '(consulta via link direto)',

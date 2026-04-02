@@ -50,6 +50,19 @@
 </div>
 
 <script>
+function getCookie(name) {
+    const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    return match ? decodeURIComponent(match[2]) : '';
+}
+
+function getAuthToken() {
+    return localStorage.getItem('session_token') ||
+           localStorage.getItem('api_session_token') ||
+           getCookie('session_token') ||
+           getCookie('api_session_token') ||
+           '';
+}
+
 document.getElementById('formConsulta').addEventListener('submit', async e => {
     e.preventDefault();
     
@@ -71,24 +84,31 @@ document.getElementById('formConsulta').addEventListener('submit', async e => {
     resultadosDiv.innerHTML = '';
 
     try {
-        let body = '';
+        let payload = {};
         
-        if (linkManual && linkManual.includes('pastebin.sbs') || linkManual.includes('api.fdxapis.us')) {
-            body = `link_manual=${encodeURIComponent(linkManual)}`;
+        if (linkManual && (linkManual.includes('pastebin.sbs') || linkManual.includes('api.fdxapis.us'))) {
+            payload = { link_manual: linkManual };
             logArea.textContent += 'Usando link manual (consulta instantânea)\n';
         } else {
             if (!nome) {
                 alert("Nome inválido ou muito curto.");
                 return;
             }
-            body = `nome=${encodeURIComponent(nome)}`;
+            payload = { nome };
             logArea.textContent += 'Enviando nome para o bot...\n';
         }
 
+        const token = getAuthToken();
+        const headers = {
+            'Content-Type': 'application/json; charset=UTF-8',
+            'Accept': 'application/json'
+        };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
         const res = await fetch('busca-nome.php', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body
+            headers,
+            body: JSON.stringify(payload)
         });
 
         if (!res.ok) throw new Error('Erro no servidor');
