@@ -24,9 +24,27 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit();
 }
 
-// Get input
-$input = file_get_contents('php://input');
-$data = json_decode($input, true);
+// Get input (suporta JSON e x-www-form-urlencoded)
+$contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+$rawInput = file_get_contents('php://input');
+$data = [];
+
+if (stripos($contentType, 'application/json') !== false) {
+    $decoded = json_decode($rawInput, true);
+    if (is_array($decoded)) {
+        $data = $decoded;
+    }
+} elseif (stripos($contentType, 'application/x-www-form-urlencoded') !== false) {
+    parse_str($rawInput, $parsed);
+    if (is_array($parsed)) {
+        $data = $parsed;
+    }
+}
+
+// fallback extra para ambientes/servidores que populam apenas $_POST
+if (empty($data) && !empty($_POST)) {
+    $data = $_POST;
+}
 
 $nome = $data['nome'] ?? null;
 $linkManual = $data['link_manual'] ?? null;
