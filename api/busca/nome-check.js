@@ -8,7 +8,9 @@ const fs = require("fs");
 // ================= CONFIG =================
 const apiId = 25531373;
 const apiHash = "b4351e2d05023dbc2b0929e17f721525";
-const stringSession = new StringSession("1AQAOMTQ5LjE1NC4xNzUuNTkBu3KZRw/EaV8PyeoMhYKOwjwGhB8Y/OlZqbs7XeZtF4+vmPbv6EtnXrFmDxnecCW0k7NC9qGHj0joNLoZRrMmEkzLmYhRH9pozIwskdMVNado0YcBR8jCUGDpj/WN+7gqyQZdEQwgM7M/1JA/vFSTlT/n+6hsnOs9vZNcI7RXyELJtE6pltpf/Cxj4atTj6+PMXPLpU+GFbxXDdKprJN9luwyARZLpruxG1SuFWhFY/JLjv9cj/o3v1avCANArkn+jREZa7V5sGiBk3oJKdynGsYmNaBkz6itzI3ne9UkDlc2XGxvqmEm+dUQBcB2ysjHi3ns1foYD/q5/ZaHqli8dvU=");
+const stringSession = new StringSession(
+  "1AQAOMTQ5LjE1NC4xNzUuNTkBu3KZRw/EaV8PyeoMhYKOwjwGhB8Y/OlZqbs7XeZtF4+vmPbv6EtnXrFmDxnecCW0k7NC9qGHj0joNLoZRrMmEkzLmYhRH9pozIwskdMVNado0YcBR8jCUGDpj/WN+7gqyQZdEQwgM7M/1JA/vFSTlT/n+6hsnOs9vZNcI7RXyELJtE6pltpf/Cxj4atTj6+PMXPLpU+GFbxXDdKprJN9luwyARZLpruxG1SuFWhFY/JLjv9cj/o3v1avCANArkn+jREZa7V5sGiBk3oJKdynGsYmNaBkz6itzI3ne9UkDlc2XGxvqmEm+dUQBcB2ysjHi3ns1foYD/q5/ZaHqli8dvU=",
+);
 const TARGET_GROUP = "paineljsisis";
 const RESULT_BOT_USERNAME = "@FindexGrupo_Bot";
 const LOG_FILE = "debug.log";
@@ -63,13 +65,13 @@ let timeoutId = null;
       const chatTitle = chat.title || chat.username || chat.firstName || "Chat privado";
 
       const sender = await msg.getSender();
-      const senderName = sender ? (sender.username || sender.id.toString()) : "Desconhecido";
+      const senderName = sender ? sender.username || sender.id.toString() : "Desconhecido";
 
       log("📩 Mensagem detectada", {
         chat_id: chatId,
         chat: chatTitle,
         sender: senderName,
-        texto: msg.message ? msg.message.substring(0, 120) + "..." : "(sem texto)"
+        texto: msg.message ? msg.message.substring(0, 120) + "..." : "(sem texto)",
       });
 
       if (msg.buttons?.length) {
@@ -79,14 +81,11 @@ let timeoutId = null;
 
             if (
               (btn.text?.toLowerCase().includes("abrir resultado") ||
-               btn.text?.toLowerCase().includes("ver resultado") ||
-               btn.text?.toLowerCase().includes("resultado completo")) &&
+                btn.text?.toLowerCase().includes("ver resultado") ||
+                btn.text?.toLowerCase().includes("resultado completo")) &&
               btn.url
             ) {
-              if (
-                btn.url.includes("api.fdxapis.us/temp/") ||
-                btn.url.includes("pastebin.sbs/view/")
-              ) {
+              if (btn.url.includes("api.fdxapis.us/temp/") || btn.url.includes("pastebin.sbs/view/")) {
                 log("🎯 LINK FINAL ENCONTRADO via botão!", btn.url);
                 console.log("LINK_FINAL:", btn.url);
                 linkEncontrado = true;
@@ -111,6 +110,6 @@ let timeoutId = null;
         }
       }
     },
-    new NewMessage({ incoming: true })
+    new NewMessage({ incoming: true }),
   );
 })();
