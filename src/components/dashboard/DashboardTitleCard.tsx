@@ -5,8 +5,6 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft } from "lucide-react";
-import { useLiquidGlass } from "@/contexts/LiquidGlassContext";
-import { cn } from "@/lib/utils";
 
 interface DashboardTitleCardProps {
   title: string;
@@ -25,34 +23,9 @@ const DashboardTitleCard = ({
   right,
 }: DashboardTitleCardProps) => {
   const navigate = useNavigate();
-  const { config: liquidGlassConfig } = useLiquidGlass();
-
-  const glassStyle = useMemo<React.CSSProperties>(() => {
-    if (!liquidGlassConfig.enabled) return {};
-    const filter = `blur(${liquidGlassConfig.strength + liquidGlassConfig.extraBlur}px) saturate(${liquidGlassConfig.tintSaturation}%) contrast(${liquidGlassConfig.contrast}%) brightness(${liquidGlassConfig.brightness}%) invert(${liquidGlassConfig.invert}%) hue-rotate(${liquidGlassConfig.tintHue}deg)`;
-    const bgAlpha = liquidGlassConfig.backgroundAlpha / 100;
-    const specHighAlpha = liquidGlassConfig.edgeSpecularity / 200;
-    const specLowAlpha = liquidGlassConfig.edgeSpecularity / 300;
-    const borderAlpha = liquidGlassConfig.backgroundAlpha / 200;
-    return {
-      borderRadius: `${liquidGlassConfig.cornerRadius}px`,
-      backdropFilter: filter,
-      WebkitBackdropFilter: filter,
-      background: `hsl(var(--card) / ${Math.min(bgAlpha, 0.92)})`,
-      boxShadow: `0 0 ${liquidGlassConfig.softness}px hsl(var(--foreground) / ${specHighAlpha}), inset 0 1px 0 hsl(var(--background) / ${specLowAlpha})`,
-      opacity: liquidGlassConfig.opacity / 100,
-      border: `1px solid hsl(var(--border) / ${Math.min(borderAlpha, 0.7)})`,
-    };
-  }, [liquidGlassConfig]);
 
   return (
-    <Card 
-      className={cn(
-        "border-border/70",
-        liquidGlassConfig.enabled && "bg-transparent border-transparent"
-      )}
-      style={liquidGlassConfig.enabled ? glassStyle : undefined}
-    >
+    <Card className="bg-card border-border">
       <CardHeader className="p-4 sm:p-6">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex flex-1 items-start gap-3">
