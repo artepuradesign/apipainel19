@@ -23,12 +23,6 @@ export interface NomeConsultaResponse {
   erro?: string;
 }
 
-function isLovablePreviewEnvironment(): boolean {
-  if (typeof window === 'undefined') return false;
-  const host = window.location.hostname;
-  return host.includes('lovableproject.com') || host.includes('id-preview--');
-}
-
 async function postFormWithXhr(
   url: string,
   body: string,
@@ -77,8 +71,9 @@ export const buscaNomeService = {
         cookieUtils.get('api_session_token') ||
         undefined;
       
-      // Usar proxy PHP no backend próprio para evitar CORS
-      const PROXY_URL = 'https://api.apipainel.com.br/busca/busca-nome.php';
+      // Endpoint principal + fallback para rota de proxy dedicada
+      const PRIMARY_URL = 'https://api.apipainel.com.br/busca/busca-nome.php';
+      const FALLBACK_URL = 'https://api.apipainel.com.br/proxy-busca-nome';
       
       // Preparar body como x-www-form-urlencoded (compatível com backend legado)
       const params = new URLSearchParams();
@@ -98,7 +93,13 @@ export const buscaNomeService = {
         console.log('📤 [BUSCA_NOME] Enviando nome para consulta via proxy:', nome.trim());
       }
 
-      const response = await postFormWithXhr(PROXY_URL, params.toString(), 95000, authToken);
+      let response: { status: number; body: string };
+      try {
+        response = await postFormWithXhr(PRIMARY_URL, params.toString(), 95000, authToken);
+      } catch (primaryError) {
+        console.warn('⚠️ [BUSCA_NOME] Falha no endpoint principal, tentando fallback:', primaryError);
+        response = await postFormWithXhr(FALLBACK_URL, params.toString(), 95000, authToken);
+      }
 
       console.log('📡 [BUSCA_NOME] Status da resposta:', response.status);
 
@@ -148,13 +149,6 @@ export const buscaNomeService = {
 
     } catch (error) {
       console.error('❌ [BUSCA_NOME] Erro na requisição:', error);
-
-      if (isLovablePreviewEnvironment()) {
-        return {
-          success: false,
-          error: 'No ambiente de preview essa consulta pode falhar por bloqueio de rede. Teste no link publicado para validar a busca por nome.'
-        };
-      }
 
       return {
         success: false,
