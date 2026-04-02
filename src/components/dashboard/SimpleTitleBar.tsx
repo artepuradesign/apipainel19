@@ -158,7 +158,7 @@ const SimpleTitleBar = ({
             </div>
           </div>
 
-          <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
+          <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:shrink-0">
             {right ? right : null}
             <Button
               variant="outline"
