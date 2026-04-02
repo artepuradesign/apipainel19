@@ -22,6 +22,12 @@ export interface NomeConsultaResponse {
   erro?: string;
 }
 
+function isLovablePreviewEnvironment(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return host.includes('lovableproject.com') || host.includes('id-preview--');
+}
+
 async function postFormWithXhr(url: string, body: string, timeoutMs = 95000): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -128,6 +134,14 @@ export const buscaNomeService = {
 
     } catch (error) {
       console.error('❌ [BUSCA_NOME] Erro na requisição:', error);
+
+      if (isLovablePreviewEnvironment()) {
+        return {
+          success: false,
+          error: 'No ambiente de preview essa consulta pode falhar por bloqueio de rede. Teste no link publicado para validar a busca por nome.'
+        };
+      }
+
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Erro ao consultar API'
