@@ -105,9 +105,9 @@ const SimpleTitleBar = ({
   // Renderizar o ícone grande à esquerda
   const renderLargeIcon = () => {
     if (icon) {
-      return (
-        <div 
-          className="shrink-0 p-1.5 md:p-2 rounded-lg border"
+          return (
+            <div 
+              className="shrink-0 p-1 rounded-lg border"
           style={moduleColor ? getIconStyles() : undefined}
         >
           <span style={moduleColor ? { color: moduleColor } : undefined} className={!moduleColor ? "text-primary" : ""}>
@@ -119,13 +119,13 @@ const SimpleTitleBar = ({
     
     // Mostrar ícone dinâmico em todas as telas
     if (ModuleIcon) {
-      return (
-        <div 
-          className="shrink-0 p-1.5 md:p-2 rounded-lg border"
+          return (
+            <div 
+              className="shrink-0 p-1 rounded-lg border"
           style={moduleColor ? getIconStyles() : undefined}
         >
           <ModuleIcon 
-            className="h-6 w-6 md:h-8 md:w-8" 
+                className="h-5 w-5 md:h-6 md:w-6" 
             style={moduleColor ? { color: moduleColor } : undefined}
           />
         </div>
@@ -139,21 +139,21 @@ const SimpleTitleBar = ({
 
   return (
     <Card className="bg-card border-border">
-      <CardHeader className="px-4 md:px-6">
-        <div className="flex items-center gap-3">
+      <CardHeader className="px-3 py-3 md:px-4 md:py-3">
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="icon"
             onClick={onBack}
-            className="rounded-full h-9 w-9 shrink-0"
+            className="rounded-full h-8 w-8 shrink-0"
             aria-label="Voltar"
             title="Voltar"
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="h-3.5 w-3.5" />
           </Button>
 
           <div className="flex-1 min-w-0">
-            <CardTitle className="text-base">
+            <CardTitle className="text-sm md:text-base">
               <span className="truncate">{displayTitle}</span>
             </CardTitle>
             {displaySubtitle ? (
@@ -163,7 +163,7 @@ const SimpleTitleBar = ({
             ) : null}
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             {right ? right : null}
             {iconElement}
           </div>
