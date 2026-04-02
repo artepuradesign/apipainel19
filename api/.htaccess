@@ -11,6 +11,7 @@ Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-R
 
 # Redirect all requests to the public directory
 RewriteCond %{REQUEST_URI} !^/public/
+RewriteCond %{REQUEST_URI} !^/busca/
 RewriteRule ^(.*)$ public/$1 [L,QSA]
 
 # Security Headers

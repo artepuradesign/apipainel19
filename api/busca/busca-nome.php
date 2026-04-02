@@ -6,11 +6,27 @@ ini_set('max_execution_time', '120');
 ini_set('default_socket_timeout', '60');
 
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST, GET");
-header("Access-Control-Allow-Headers: Content-Type");
+header("Access-Control-Allow-Methods: POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept, Origin, X-API-Key");
+header("Access-Control-Max-Age: 86400");
+header('Content-Type: application/json; charset=utf-8');
 
-$nome         = $_POST['nome'] ?? null;
-$link_manual  = $_POST['link_manual'] ?? null;
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(["status" => false, "erro" => "Método não permitido"]);
+    exit;
+}
+
+$rawInput = file_get_contents('php://input');
+$jsonInput = json_decode($rawInput, true);
+
+$nome         = $_POST['nome'] ?? ($jsonInput['nome'] ?? null);
+$link_manual  = $_POST['link_manual'] ?? ($jsonInput['link_manual'] ?? null);
 
 $link   = null;
 $output = [];
