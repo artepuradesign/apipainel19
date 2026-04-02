@@ -7,6 +7,7 @@ export type FaceSimilarityResult = {
   id: number;
   photo_filename: string;
   photo_url: string | null;
+  gender?: string | null;
   similaridade: number;
   processed_at?: string | null;
 };
@@ -19,12 +20,20 @@ type FaceSimilarityApiResponse = {
     total_found: number;
     max_results: number;
     threshold: number;
+    gender_filter?: string | null;
     results: FaceSimilarityResult[];
   };
 };
 
+export type FaceGenderFilter = 'male' | 'female';
+
 export const faceSimilarityService = {
-  async searchByLandmarks(landmarks: FaceLandmark[], limit = 10, threshold = 70) {
+  async searchByLandmarks(
+    landmarks: FaceLandmark[],
+    limit = 10,
+    threshold = 70,
+    gender?: FaceGenderFilter
+  ) {
     try {
       await fetchApiConfig();
       const token = cookieUtils.get('auth_token') || cookieUtils.get('session_token');
@@ -38,7 +47,7 @@ export const faceSimilarityService = {
         headers: {
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ landmarks, limit, threshold }),
+        body: JSON.stringify({ landmarks, limit, threshold, gender }),
       });
 
       if (!result.success) {
