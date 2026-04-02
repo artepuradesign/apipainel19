@@ -213,7 +213,8 @@ const FaceIdSimiliridade = () => {
       const errorMessage = error instanceof Error ? error.message : 'Erro ao processar similaridade';
       toast.error(errorMessage);
       setResults([]);
-      setSelectedResult(null);
+      setBestMatch(null);
+      setDetailResult(null);
       setApiResponse({
         module_id: MODULE_ID,
         action: 'faceid-similiridade.search',
