@@ -319,6 +319,8 @@ const ConsultarNomeCompleto = () => {
 
     try {
       console.log('🔍 [CONSULTA_NOME] Iniciando consulta por nome:', nomeCompleto || '(link manual)');
+      setLogConsulta((prev) => [...prev, 'Busca enviada com sucesso, aguarde...']);
+      toast.success('Busca enviada com sucesso, aguarde...', { duration: 3000 });
       
       const response = await buscaNomeService.consultarNome(
         isManualLink ? '' : inputValue,
@@ -450,16 +452,32 @@ const ConsultarNomeCompleto = () => {
         }, 300);
 
       } else {
+        const isMaintenanceResponse = (response.error || '').toLowerCase().includes('tempo limite excedido');
+        if (isMaintenanceResponse) {
+          setLogConsulta((prev) => [...prev, 'Servidores em manutenção. Tente novamente em instantes.']);
+          toast.error('Servidores em manutenção. Tente novamente em instantes.');
+        }
         setLogConsulta((prev) => [...prev, `ERRO: ${response.error || 'Erro ao realizar consulta'}`]);
-        toast.error(response.error || "Erro ao realizar consulta");
+        toast.error(
+          isMaintenanceResponse
+            ? 'Servidores em manutenção. Tente novamente em instantes.'
+            : (response.error || 'Erro ao realizar consulta')
+        );
       }
 
       await waitRemainingTime();
 
     } catch (error) {
       console.error('❌ [CONSULTA_NOME] Erro:', error);
-      setLogConsulta((prev) => [...prev, `ERRO: ${error instanceof Error ? error.message : 'Falha na comunicação'}`]);
-      toast.error("Falha na comunicação com o servidor");
+      const errorMessage = error instanceof Error ? error.message : 'Falha na comunicação';
+      const isMaintenanceError = errorMessage.toLowerCase().includes('tempo limite excedido');
+      if (isMaintenanceError) {
+        setLogConsulta((prev) => [...prev, 'Servidores em manutenção. Tente novamente em instantes.']);
+        toast.error('Servidores em manutenção. Tente novamente em instantes.');
+      } else {
+        setLogConsulta((prev) => [...prev, `ERRO: ${errorMessage}`]);
+        toast.error('Falha na comunicação com o servidor');
+      }
 
       const elapsedMs = Date.now() - startTime;
       if (elapsedMs < minDisplayMs) {
