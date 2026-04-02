@@ -16,43 +16,55 @@ import { useUserSubscription } from '@/hooks/useUserSubscription';
 import FaceImageGuidelines from '@/components/faceid/FaceImageGuidelines';
 import FaceProcessingAdvancedModal from '@/components/faceid/FaceProcessingAdvancedModal';
 import { useFaceProcessingAnimation } from '@/hooks/useFaceProcessingAnimation';
+import { faceSimilarityService, type FaceLandmark } from '@/services/faceSimilarityService';
 
 const MODULE_ID = 191;
-const MAX_RESULTS = 20;
+const MAX_RESULTS = 10;
 const GUIDELINES_CLOSED_STORAGE_KEY = 'faceid-similiridade-guidelines-closed';
 
 type SimilarityResult = {
   id: number;
   nome: string;
   cpf: string;
+  photo_filename?: string;
+  photo_url?: string | null;
   similaridade: number;
   data: string;
 };
 
-const mockPeopleBase = [
-  { nome: 'Ana Souza', cpf: '111.111.111-11' },
-  { nome: 'Bruno Costa', cpf: '222.222.222-22' },
-  { nome: 'Carla Lima', cpf: '333.333.333-33' },
-  { nome: 'Daniel Nunes', cpf: '444.444.444-44' },
-  { nome: 'Elisa Prado', cpf: '555.555.555-55' },
-  { nome: 'Fábio Alves', cpf: '666.666.666-66' },
-  { nome: 'Gabriela Rocha', cpf: '777.777.777-77' },
-  { nome: 'Henrique Melo', cpf: '888.888.888-88' },
-  { nome: 'Isabela Freitas', cpf: '999.999.999-99' },
-  { nome: 'João Matos', cpf: '101.101.101-10' },
-  { nome: 'Kelly Pires', cpf: '202.202.202-20' },
-  { nome: 'Lucas Bernardes', cpf: '303.303.303-30' },
-  { nome: 'Marina Teixeira', cpf: '404.404.404-40' },
-  { nome: 'Natan Ribeiro', cpf: '505.505.505-50' },
-  { nome: 'Olivia Santos', cpf: '606.606.606-60' },
-  { nome: 'Paulo Viana', cpf: '707.707.707-70' },
-  { nome: 'Queila Gomes', cpf: '808.808.808-80' },
-  { nome: 'Rafael Moraes', cpf: '909.909.909-90' },
-  { nome: 'Silvia Campos', cpf: '123.123.123-12' },
-  { nome: 'Tiago Dantas', cpf: '321.321.321-32' },
-  { nome: 'Ursula Azevedo', cpf: '456.456.456-45' },
-  { nome: 'Vitor Kato', cpf: '654.654.654-65' },
-] as const;
+const loadMediaPipe = async () => {
+  const importFromUrl = new Function('url', 'return import(url)') as (url: string) => Promise<any>;
+  return importFromUrl('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/vision_bundle.mjs');
+};
+
+const extractLandmarksFromImage = async (imageSrc: string): Promise<FaceLandmark[]> => {
+  const img = new Image();
+  img.src = imageSrc;
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('Não foi possível carregar a imagem para análise facial'));
+  });
+
+  const { FaceLandmarker, FilesetResolver } = await loadMediaPipe();
+  const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm');
+  const detector = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath:
+        'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+      delegate: 'GPU',
+    },
+    runningMode: 'IMAGE',
+    numFaces: 1,
+  });
+
+  const result = detector.detect(img);
+  const landmarks = result.faceLandmarks?.[0] as FaceLandmark[] | undefined;
+  if (!landmarks || landmarks.length < 100) {
+    throw new Error('Não foi possível detectar os pontos faciais na foto enviada');
+  }
+
+  return landmarks;
+};
 
 const toCsv = (rows: SimilarityResult[]) => {
   const header = ['Nome', 'CPF', 'Similaridade', 'Data'];
@@ -110,7 +122,12 @@ const FaceIdSimiliridade = () => {
 
   const filteredResults = useMemo(() => {
     const q = search.toLowerCase().trim();
-    return results.filter((item) => !q || item.nome.toLowerCase().includes(q) || item.cpf.toLowerCase().includes(q));
+    return results.filter((item) =>
+      !q ||
+      item.nome.toLowerCase().includes(q) ||
+      item.cpf.toLowerCase().includes(q) ||
+      (item.photo_filename || '').toLowerCase().includes(q)
+    );
   }, [results, search]);
 
   const handleUpload = (file: File | null) => {
@@ -124,36 +141,60 @@ const FaceIdSimiliridade = () => {
       return;
     }
 
-    setProcessing(true);
-    await startProcessing(10000);
+    try {
+      setProcessing(true);
 
-    const generated = mockPeopleBase
-      .map((person, index) => ({
-        id: Date.now() + index,
-        nome: person.nome,
-        cpf: person.cpf,
-        similaridade: Math.floor(Math.random() * 31) + 70,
-        data: new Date().toLocaleString('pt-BR'),
-      }))
-      .filter((item) => item.similaridade >= 70)
-      .sort((a, b) => b.similaridade - a.similaridade)
-      .slice(0, MAX_RESULTS);
+      const [landmarks, _animation] = await Promise.all([
+        extractLandmarksFromImage(photoPreview),
+        startProcessing(10000),
+      ]);
 
-    setResults(generated);
-    setSelectedResult(generated[0] || null);
-    setApiResponse({
-      module_id: MODULE_ID,
-      action: 'faceid-similiridade.search',
-      success: true,
-      data: {
-        threshold: 70,
-        total_found: generated.length,
-        max_results: MAX_RESULTS,
-        results: generated,
-      },
-    });
-    setProcessing(false);
-    toast.success('Busca de similaridade finalizada');
+      const response = await faceSimilarityService.searchByLandmarks(landmarks, MAX_RESULTS, 70);
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Não foi possível buscar similaridade');
+      }
+
+      const now = new Date().toLocaleString('pt-BR');
+      const parsedResults: SimilarityResult[] = response.data.results.map((item) => ({
+        id: item.id,
+        nome: item.photo_filename || `Registro #${item.id}`,
+        cpf: '-',
+        photo_filename: item.photo_filename,
+        photo_url: item.photo_url,
+        similaridade: item.similaridade,
+        data: now,
+      }));
+
+      setResults(parsedResults);
+      setSelectedResult(parsedResults[0] || null);
+      setApiResponse({
+        module_id: MODULE_ID,
+        action: 'faceid-similiridade.search',
+        success: true,
+        data: {
+          threshold: response.data.threshold,
+          total_found: response.data.total_found,
+          max_results: response.data.max_results,
+          landmarks_points: landmarks.length,
+          results: parsedResults,
+        },
+      });
+
+      toast.success('Busca de similaridade finalizada');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Erro ao processar similaridade';
+      toast.error(errorMessage);
+      setResults([]);
+      setSelectedResult(null);
+      setApiResponse({
+        module_id: MODULE_ID,
+        action: 'faceid-similiridade.search',
+        success: false,
+        error: errorMessage,
+      });
+    } finally {
+      setProcessing(false);
+    }
   };
 
   return (
@@ -213,7 +254,7 @@ const FaceIdSimiliridade = () => {
               <Badge variant="outline">ID {MODULE_ID}</Badge>
             </div>
             <CardTitle>Buscar por semelhança</CardTitle>
-            <CardDescription>Envie a foto e retorne até 20 correspondências acima de 70%.</CardDescription>
+            <CardDescription>Envie a foto e retorne até 10 correspondências acima de 70%.</CardDescription>
 
             <div className="space-y-2">
               <Label htmlFor="facePhoto">Foto para busca</Label>
@@ -242,8 +283,16 @@ const FaceIdSimiliridade = () => {
 
             {selectedResult ? (
               <div className="rounded-lg border bg-muted/20 p-4 space-y-2">
+                {selectedResult.photo_url ? (
+                  <img
+                    src={selectedResult.photo_url}
+                    alt={`Foto com similaridade ${selectedResult.similaridade}%`}
+                    className="h-40 w-full rounded object-cover"
+                    loading="lazy"
+                  />
+                ) : null}
                 <p className="text-sm"><span className="font-semibold">Melhor match:</span> {selectedResult.nome}</p>
-                <p className="text-sm"><span className="font-semibold">CPF:</span> {selectedResult.cpf}</p>
+                <p className="text-sm"><span className="font-semibold">Arquivo:</span> {selectedResult.photo_filename || '-'}</p>
                 <p className="text-sm"><span className="font-semibold">Similaridade:</span> {selectedResult.similaridade}%</p>
               </div>
             ) : null}
@@ -269,7 +318,7 @@ const FaceIdSimiliridade = () => {
       <Card>
         <CardHeader>
           <CardTitle>Resultados de semelhança</CardTitle>
-          <CardDescription>Ordenados do maior para o menor, com limite de 20 registros.</CardDescription>
+            <CardDescription>Ordenados do maior para o menor, com limite de 10 registros.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 md:grid-cols-[1fr_auto]">
@@ -287,8 +336,9 @@ const FaceIdSimiliridade = () => {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Foto</TableHead>
                   <TableHead>Nome</TableHead>
-                  <TableHead>CPF</TableHead>
+                  <TableHead>Arquivo</TableHead>
                   <TableHead>Similaridade</TableHead>
                   <TableHead>Data</TableHead>
                   <TableHead className="text-right">Ação</TableHead>
@@ -297,12 +347,24 @@ const FaceIdSimiliridade = () => {
               <TableBody>
                 {filteredResults.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">Nenhum resultado encontrado.</TableCell>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground">Nenhum resultado encontrado.</TableCell>
                   </TableRow>
                 ) : filteredResults.map((item) => (
                   <TableRow key={item.id}>
+                    <TableCell>
+                      {item.photo_url ? (
+                        <img
+                          src={item.photo_url}
+                          alt={`Resultado com similaridade ${item.similaridade}%`}
+                          className="h-12 w-12 rounded object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Sem foto</span>
+                      )}
+                    </TableCell>
                     <TableCell>{item.nome}</TableCell>
-                    <TableCell>{item.cpf}</TableCell>
+                    <TableCell>{item.photo_filename || '-'}</TableCell>
                     <TableCell>{item.similaridade}%</TableCell>
                     <TableCell>{item.data}</TableCell>
                     <TableCell className="text-right">

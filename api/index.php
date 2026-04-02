@@ -319,6 +319,12 @@ try {
         include __DIR__ . '/src/routes/base_foto.php';
         exit();
     }
+
+    // Similaridade facial com landmarks (Dataface)
+    if (strpos($endpoint, '/face-similarity') === 0) {
+        include __DIR__ . '/src/routes/face_similarity.php';
+        exit();
+    }
     
     // Base Senha CPF - CRUD completo para base_senha_cpf
     if (strpos($endpoint, '/base-senha-cpf') === 0) {

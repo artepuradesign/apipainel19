@@ -23,6 +23,13 @@ define('DB_PASS', 'Acerola@2026');
 define('DB_PORT', '3306');
 define('DB_CHARSET', 'utf8mb4');
 
+// Dataface Database Configuration
+define('DB_HOST_DATAFACE', '127.0.0.1');
+define('DB_NAME_DATAFACE', 'baseface');
+define('DB_USER_DATAFACE', 'user-baseface');
+define('DB_PASS_DATAFACE', 'Acerola@2026');
+define('DB_CHARSET_DATAFACE', 'utf8mb4');
+
 // App Configuration
 define('APP_ENV', 'development');
 define('APP_DEBUG', true);
@@ -51,7 +58,9 @@ define('MAX_PAGE_SIZE', 100);
 class ConnectionPool {
     private static $instance = null;
     private $connection = null;
+    private $connectionDataface = null;
     private $connectionCount = 0;
+    private $connectionCountDataface = 0;
     
     private function __construct() {
         // Construtor privado para Singleton
@@ -87,6 +96,24 @@ class ConnectionPool {
         }
         
         return $this->connection;
+    }
+
+    /**
+     * Obtém conexão reutilizável com o banco DATAFACE
+     */
+    public function getDatafaceConnection() {
+        if ($this->connectionDataface === null) {
+            $this->createDatafaceConnection();
+        }
+
+        try {
+            $this->connectionDataface->query('SELECT 1');
+        } catch (PDOException $e) {
+            error_log("CONNECTION_POOL DATAFACE: Conexão perdida, reconectando...");
+            $this->createDatafaceConnection();
+        }
+
+        return $this->connectionDataface;
     }
     
     /**
@@ -125,6 +152,39 @@ class ConnectionPool {
             throw new Exception("Erro na conexão com o banco de dados: " . $e->getMessage());
         }
     }
+
+    /**
+     * Cria nova conexão com o banco DATAFACE
+     */
+    private function createDatafaceConnection() {
+        try {
+            date_default_timezone_set('America/Sao_Paulo');
+
+            $dsn = "mysql:host=" . DB_HOST_DATAFACE . ";dbname=" . DB_NAME_DATAFACE . ";charset=" . DB_CHARSET_DATAFACE;
+
+            $options = [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => false,
+                PDO::ATTR_PERSISTENT => true,
+                PDO::ATTR_TIMEOUT => 15,
+                PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => true,
+                PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES " . DB_CHARSET_DATAFACE
+            ];
+
+            $this->connectionDataface = new PDO($dsn, DB_USER_DATAFACE, DB_PASS_DATAFACE, $options);
+
+            $this->connectionDataface->exec("SET time_zone = '-03:00'");
+            $this->connectionDataface->exec("SET sql_mode = 'TRADITIONAL'");
+            $this->connectionDataface->exec("SET SESSION wait_timeout = 300");
+
+            $this->connectionCountDataface++;
+            error_log("CONNECTION_POOL: Conexão DATAFACE #" . $this->connectionCountDataface . " estabelecida (PERSISTENT MODE)");
+        } catch(PDOException $e) {
+            error_log("CONNECTION_POOL DATAFACE ERROR: " . $e->getMessage());
+            throw new Exception("Erro na conexão com o banco dataface: " . $e->getMessage());
+        }
+    }
     
     /**
      * Fecha a conexão com o banco de dados
@@ -132,8 +192,13 @@ class ConnectionPool {
     public function closeConnection() {
         if ($this->connection !== null) {
             $this->connection = null;
-            error_log("CONNECTION_POOL: Conexão fechada automaticamente");
         }
+
+        if ($this->connectionDataface !== null) {
+            $this->connectionDataface = null;
+        }
+
+        error_log("CONNECTION_POOL: Conexões fechadas automaticamente");
     }
     
     /**
@@ -181,7 +246,14 @@ function getDBConnection() {
     return ConnectionPool::getInstance()->getConnection();
 }
 
-error_log("CONEXAO: Configurações carregadas com sucesso - Pool de Conexões ativado");
+/**
+ * Função helper para obter conexão com o banco DATAFACE
+ */
+function getDatafaceConnection() {
+    return ConnectionPool::getInstance()->getDatafaceConnection();
+}
+
+error_log("CONEXAO: Configurações carregadas com sucesso - Pool de Conexões ativado com suporte a Dataface");
 
 // ==================== TELEGRAM CONFIGURATION ====================
 // Telegram API Configuration (obtido em https://my.telegram.org/apps)
