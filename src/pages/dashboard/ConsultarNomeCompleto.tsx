@@ -455,7 +455,6 @@ const ConsultarNomeCompleto = () => {
         const isMaintenanceResponse = (response.error || '').toLowerCase().includes('tempo limite excedido');
         if (isMaintenanceResponse) {
           setLogConsulta((prev) => [...prev, 'Servidores em manutenção. Tente novamente em instantes.']);
-          toast.error('Servidores em manutenção. Tente novamente em instantes.');
         }
         setLogConsulta((prev) => [...prev, `ERRO: ${response.error || 'Erro ao realizar consulta'}`]);
         toast.error(
