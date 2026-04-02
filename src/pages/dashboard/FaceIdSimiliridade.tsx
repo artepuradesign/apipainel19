@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Download, Loader2, Search, Settings, Users } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
@@ -28,6 +28,7 @@ type SimilarityResult = {
   cpf: string;
   photo_filename?: string;
   photo_url?: string | null;
+  gender?: string | null;
   similaridade: number;
   data: string;
 };
@@ -92,7 +93,10 @@ const FaceIdSimiliridade = () => {
   const [processing, setProcessing] = useState(false);
   const [results, setResults] = useState<SimilarityResult[]>([]);
   const [search, setSearch] = useState('');
-  const [selectedResult, setSelectedResult] = useState<SimilarityResult | null>(null);
+  const [bestMatch, setBestMatch] = useState<SimilarityResult | null>(null);
+  const [detailResult, setDetailResult] = useState<SimilarityResult | null>(null);
+  const [detailProgress, setDetailProgress] = useState(0);
+  const [genderFilter, setGenderFilter] = useState<'male' | 'female'>('male');
   const [apiResponse, setApiResponse] = useState<Record<string, unknown> | null>(null);
   const [guidelinesCollapsed, setGuidelinesCollapsed] = useState(false);
   const [guidelinesClosed, setGuidelinesClosed] = useState(() => {
@@ -126,9 +130,31 @@ const FaceIdSimiliridade = () => {
       !q ||
       item.nome.toLowerCase().includes(q) ||
       item.cpf.toLowerCase().includes(q) ||
-      (item.photo_filename || '').toLowerCase().includes(q)
+      (item.photo_filename || '').toLowerCase().includes(q) ||
+      (item.gender || '').toLowerCase().includes(q)
     );
   }, [results, search]);
+
+  useEffect(() => {
+    if (!detailResult) {
+      setDetailProgress(0);
+      return;
+    }
+
+    setDetailProgress(0);
+    const startedAt = Date.now();
+    const duration = 2600;
+    const timer = window.setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const next = Math.min((elapsed / duration) * 100, 100);
+      setDetailProgress(next);
+      if (next >= 100) {
+        window.clearInterval(timer);
+      }
+    }, 60);
+
+    return () => window.clearInterval(timer);
+  }, [detailResult]);
 
   const handleUpload = (file: File | null) => {
     if (!file) return;
@@ -149,7 +175,7 @@ const FaceIdSimiliridade = () => {
         startProcessing(10000),
       ]);
 
-      const response = await faceSimilarityService.searchByLandmarks(landmarks, MAX_RESULTS, 70);
+      const response = await faceSimilarityService.searchByLandmarks(landmarks, MAX_RESULTS, 70, genderFilter);
       if (!response.success || !response.data) {
         throw new Error(response.error || 'Não foi possível buscar similaridade');
       }
@@ -161,12 +187,14 @@ const FaceIdSimiliridade = () => {
         cpf: '-',
         photo_filename: item.photo_filename,
         photo_url: item.photo_url,
+        gender: item.gender,
         similaridade: item.similaridade,
         data: now,
       }));
 
       setResults(parsedResults);
-      setSelectedResult(parsedResults[0] || null);
+      setBestMatch(parsedResults[0] || null);
+      setDetailResult(null);
       setApiResponse({
         module_id: MODULE_ID,
         action: 'faceid-similiridade.search',
@@ -257,8 +285,21 @@ const FaceIdSimiliridade = () => {
             <CardDescription>Envie a foto e retorne até 10 correspondências acima de 70%.</CardDescription>
 
             <div className="space-y-2">
-              <Label htmlFor="facePhoto">Foto para busca</Label>
-              <Input id="facePhoto" type="file" accept="image/*" onChange={(e) => handleUpload(e.target.files?.[0] || null)} />
+              <Label htmlFor="facePhoto" className="text-success">Foto para busca</Label>
+              <Input id="facePhoto" type="file" accept="image/*" onChange={(e) => handleUpload(e.target.files?.[0] || null)} className="border-success/50 focus-visible:ring-success" />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="sexoBusca">Sexo para filtro</Label>
+              <select
+                id="sexoBusca"
+                value={genderFilter}
+                onChange={(e) => setGenderFilter((e.target.value as 'male' | 'female'))}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <option value="male">Masculino</option>
+                <option value="female">Feminino</option>
+              </select>
             </div>
             <div className="rounded-md border bg-muted/20 p-2">
               {photoPreview ? (
@@ -281,19 +322,35 @@ const FaceIdSimiliridade = () => {
               </Button>
             </div>
 
-            {selectedResult ? (
+            {bestMatch ? (
               <div className="rounded-lg border bg-muted/20 p-4 space-y-2">
-                {selectedResult.photo_url ? (
-                  <img
-                    src={selectedResult.photo_url}
-                    alt={`Foto com similaridade ${selectedResult.similaridade}%`}
-                    className="h-40 w-full rounded object-cover"
-                    loading="lazy"
-                  />
-                ) : null}
-                <p className="text-sm"><span className="font-semibold">Melhor match:</span> {selectedResult.nome}</p>
-                <p className="text-sm"><span className="font-semibold">Arquivo:</span> {selectedResult.photo_filename || '-'}</p>
-                <p className="text-sm"><span className="font-semibold">Similaridade:</span> {selectedResult.similaridade}%</p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded border bg-background/60 p-2">
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">Foto de referência</p>
+                    {photoPreview ? (
+                      <img src={photoPreview} alt="Referência enviada" className="h-52 w-full rounded object-contain" loading="lazy" />
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Sem referência</p>
+                    )}
+                  </div>
+                  <div className="rounded border bg-background/60 p-2">
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">Melhor match</p>
+                    {bestMatch.photo_url ? (
+                      <img
+                        src={bestMatch.photo_url}
+                        alt={`Foto com similaridade ${bestMatch.similaridade}%`}
+                        className="h-52 w-full rounded object-contain"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Sem foto</p>
+                    )}
+                  </div>
+                </div>
+                <p className="text-sm"><span className="font-semibold">Melhor match:</span> {bestMatch.nome}</p>
+                <p className="text-sm"><span className="font-semibold">Arquivo:</span> {bestMatch.photo_filename || '-'}</p>
+                <p className="text-sm"><span className="font-semibold">Sexo:</span> {bestMatch.gender || '-'}</p>
+                <p className="text-sm"><span className="font-semibold">Similaridade:</span> {bestMatch.similaridade}%</p>
               </div>
             ) : null}
           </CardContent>
@@ -339,6 +396,7 @@ const FaceIdSimiliridade = () => {
                   <TableHead>Foto</TableHead>
                   <TableHead>Nome</TableHead>
                   <TableHead>Arquivo</TableHead>
+                  <TableHead>Sexo</TableHead>
                   <TableHead>Similaridade</TableHead>
                   <TableHead>Data</TableHead>
                   <TableHead className="text-right">Ação</TableHead>
@@ -347,7 +405,7 @@ const FaceIdSimiliridade = () => {
               <TableBody>
                 {filteredResults.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">Nenhum resultado encontrado.</TableCell>
+                      <TableCell colSpan={7} className="text-center text-muted-foreground">Nenhum resultado encontrado.</TableCell>
                   </TableRow>
                 ) : filteredResults.map((item) => (
                   <TableRow key={item.id}>
@@ -356,7 +414,7 @@ const FaceIdSimiliridade = () => {
                         <img
                           src={item.photo_url}
                           alt={`Resultado com similaridade ${item.similaridade}%`}
-                          className="h-12 w-12 rounded object-cover"
+                          className="h-12 w-12 rounded object-contain"
                           loading="lazy"
                         />
                       ) : (
@@ -365,10 +423,11 @@ const FaceIdSimiliridade = () => {
                     </TableCell>
                     <TableCell>{item.nome}</TableCell>
                     <TableCell>{item.photo_filename || '-'}</TableCell>
+                    <TableCell>{item.gender || '-'}</TableCell>
                     <TableCell>{item.similaridade}%</TableCell>
                     <TableCell>{item.data}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="outline" size="sm" onClick={() => setSelectedResult(item)}>Ver detalhes</Button>
+                      <Button variant="outline" size="sm" onClick={() => setDetailResult(item)}>Ver detalhes</Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -384,6 +443,28 @@ const FaceIdSimiliridade = () => {
         progress={progress}
         title="Análise de similaridade facial"
         onOpenChange={() => {}}
+      />
+
+      <FaceProcessingAdvancedModal
+        open={Boolean(detailResult)}
+        imageSrc={detailResult?.photo_url || null}
+        progress={detailProgress}
+        title="Detalhes da correspondência"
+        description="Animação de varredura com fixação dos pontos encontrados na foto correspondente."
+        showProgress={false}
+        details={
+          detailResult ? (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <p><span className="font-semibold">Arquivo:</span> {detailResult.photo_filename || '-'}</p>
+              <p><span className="font-semibold">Sexo:</span> {detailResult.gender || '-'}</p>
+              <p><span className="font-semibold">Similaridade:</span> {detailResult.similaridade}%</p>
+              <p><span className="font-semibold">Data:</span> {detailResult.data}</p>
+            </div>
+          ) : null
+        }
+        onOpenChange={(open) => {
+          if (!open) setDetailResult(null);
+        }}
       />
     </div>
   );
