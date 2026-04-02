@@ -26,7 +26,7 @@ export interface NomeConsultaResponse {
 async function postJsonWithXhr(
   url: string,
   body: string,
-  timeoutMs = 95000,
+  timeoutMs = 30000,
   authToken?: string
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
@@ -91,7 +91,7 @@ export const buscaNomeService = {
         console.log('📤 [BUSCA_NOME] Enviando nome para consulta via proxy:', nome.trim());
       }
 
-      const response = await postJsonWithXhr(SEARCH_URL, JSON.stringify(requestPayload), 95000, authToken);
+      const response = await postJsonWithXhr(SEARCH_URL, JSON.stringify(requestPayload), 30000, authToken);
 
       console.log('📡 [BUSCA_NOME] Status da resposta:', response.status);
 
