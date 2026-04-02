@@ -14,8 +14,9 @@ export const useApiInterceptor = () => {
       // Verificar se é uma requisição para nossa API
       const url = typeof input === 'string' ? input : input.toString();
       const isApiRequest = url.includes('api.apipainel.com.br');
+      const isBuscaNomeProxy = url.includes('/busca/busca-nome.php');
 
-      if (isApiRequest && init) {
+      if (isApiRequest && init && !isBuscaNomeProxy) {
         // Adicionar token automaticamente se não foi especificado
         const token = cookieUtils.get('session_token') || cookieUtils.get('api_session_token');
         
