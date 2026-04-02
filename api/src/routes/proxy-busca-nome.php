@@ -46,7 +46,7 @@ if (!empty($linkManual)) {
 }
 
 // External API URL
-$externalUrl = 'https://apipainel.atito.com.br/busca-nome.php';
+$externalUrl = 'https://api.apipainel.com.br/busca-nome.php';
 
 // Make request using cURL
 $ch = curl_init();
