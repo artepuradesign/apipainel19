@@ -140,36 +140,32 @@ const SimpleTitleBar = ({
   return (
     <Card className="bg-card border-border">
       <CardHeader className="px-4 md:px-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            {/* Ícone à esquerda ocupando espaço das duas linhas */}
-            {iconElement}
-            
-            {/* Título e descrição */}
-            <div className="flex-1 min-w-0">
-              <CardTitle className="text-base">
-                <span className="truncate">{displayTitle}</span>
-              </CardTitle>
-              {displaySubtitle ? (
-                <p className="hidden sm:block text-xs md:text-sm text-muted-foreground mt-1 line-clamp-2 md:line-clamp-none">
-                  {displaySubtitle}
-                </p>
-              ) : null}
-            </div>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={onBack}
+            className="rounded-full h-9 w-9 shrink-0"
+            aria-label="Voltar"
+            title="Voltar"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+
+          <div className="flex-1 min-w-0">
+            <CardTitle className="text-base">
+              <span className="truncate">{displayTitle}</span>
+            </CardTitle>
+            {displaySubtitle ? (
+              <p className="hidden sm:block text-xs md:text-sm text-muted-foreground mt-1 line-clamp-2 md:line-clamp-none">
+                {displaySubtitle}
+              </p>
+            ) : null}
           </div>
 
-          <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             {right ? right : null}
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={onBack}
-              className="rounded-full h-9 w-9"
-              aria-label="Voltar"
-              title="Voltar"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
+            {iconElement}
           </div>
         </div>
       </CardHeader>
