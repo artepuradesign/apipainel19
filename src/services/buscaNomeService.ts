@@ -36,7 +36,7 @@ export const buscaNomeService = {
       console.log('🔍 [BUSCA_NOME] Iniciando consulta por nome:', nome || '(link manual)');
       
       // Usar proxy PHP no backend próprio para evitar CORS
-      const PROXY_URL = 'https://api.apipainel.com.br/proxy-busca-nome.php';
+      const PROXY_URL = 'https://api.apipainel.com.br/busca/busca-nome.php';
       
       // Preparar body da requisição como JSON
       const body: { nome?: string; link_manual?: string } = {};
