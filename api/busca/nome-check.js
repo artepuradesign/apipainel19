@@ -2,15 +2,17 @@
 const { TelegramClient } = require("telegram");
 const { StringSession } = require("telegram/sessions");
 const { NewMessage } = require("telegram/events");
-const input = require("input");
 const fs = require("fs");
 
 // ================= CONFIG =================
 const apiId = 25531373;
 const apiHash = "b4351e2d05023dbc2b0929e17f721525";
-const stringSession = new StringSession(
-  "1AQAOMTQ5LjE1NC4xNzUuNTkBu3KZRw/EaV8PyeoMhYKOwjwGhB8Y/OlZqbs7XeZtF4+vmPbv6EtnXrFmDxnecCW0k7NC9qGHj0joNLoZRrMmEkzLmYhRH9pozIwskdMVNado0YcBR8jCUGDpj/WN+7gqyQZdEQwgM7M/1JA/vFSTlT/n+6hsnOs9vZNcI7RXyELJtE6pltpf/Cxj4atTj6+PMXPLpU+GFbxXDdKprJN9luwyARZLpruxG1SuFWhFY/JLjv9cj/o3v1avCANArkn+jREZa7V5sGiBk3oJKdynGsYmNaBkz6itzI3ne9UkDlc2XGxvqmEm+dUQBcB2ysjHi3ns1foYD/q5/ZaHqli8dvU=",
-);
+const SESSION_FILE = "telegram.session";
+const envSession = process.env.TELEGRAM_STRING_SESSION || "";
+const fileSession = fs.existsSync(SESSION_FILE)
+  ? fs.readFileSync(SESSION_FILE, "utf8").trim()
+  : "";
+const stringSession = new StringSession(envSession || fileSession);
 const TARGET_GROUP = "paineljsisis";
 const RESULT_BOT_USERNAME = "@FindexGrupo_Bot";
 const LOG_FILE = "debug.log";
@@ -31,13 +33,20 @@ let timeoutId = null;
 
   const client = new TelegramClient(stringSession, apiId, apiHash, { connectionRetries: 5 });
 
-  await client.start({
-    phoneNumber: async () => input.text("Telefone: "),
-    password: async () => input.text("Senha 2FA: "),
-    phoneCode: async () => input.text("Código: "),
-  });
+  await client.connect();
+  const isAuthorized = await client.isUserAuthorized();
+  if (!isAuthorized) {
+    log("❌ Sessão do Telegram inválida ou expirada");
+    console.log("ERROR_CODE: TELEGRAM_SESSION_INVALID");
+    process.exit(2);
+  }
 
-  log("✅ Logado com sucesso");
+  const savedSession = client.session.save();
+  if (savedSession) {
+    fs.writeFileSync(SESSION_FILE, savedSession, "utf8");
+  }
+
+  log("✅ Sessão Telegram válida");
 
   nomeAtual = process.argv.slice(2).join(" ").trim();
   if (!nomeAtual) {

@@ -25,8 +25,17 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $rawInput = file_get_contents('php://input');
 $jsonInput = json_decode($rawInput, true);
 
-$nome         = $_POST['nome'] ?? ($jsonInput['nome'] ?? null);
-$link_manual  = $_POST['link_manual'] ?? ($jsonInput['link_manual'] ?? null);
+if (!is_array($jsonInput)) {
+    http_response_code(400);
+    echo json_encode([
+        "status" => false,
+        "erro" => "Payload inválido. Envie somente JSON com nome ou link_manual."
+    ]);
+    exit;
+}
+
+$nome         = $jsonInput['nome'] ?? null;
+$link_manual  = $jsonInput['link_manual'] ?? null;
 
 $link   = null;
 $output = [];
@@ -58,6 +67,15 @@ if (!$link) {
     $exec = shell_exec($cmd . " 2>&1");
 
     $output = array_filter(explode("\n", trim($exec)));
+
+    if (preg_match('/ERROR_CODE:\s*TELEGRAM_SESSION_INVALID/i', $exec)) {
+        echo json_encode([
+            "status" => false,
+            "erro" => "Sessão do Telegram inválida ou expirada. Atualize a sessão no servidor.",
+            "log" => $output
+        ]);
+        exit;
+    }
 
     if (preg_match('/LINK_FINAL:\s*(https?:\/\/(?:pastebin\.sbs\/view\/|api\.fdxapis\.us\/temp\/)[^\s]+)/i', $exec, $m)) {
         $link = $m[1];
@@ -102,17 +120,6 @@ function downloadWithCurl($url) {
 }
 
 $conteudo = downloadWithCurl($link);
-
-if ($conteudo === false) {
-    // fallback para file_get_contents
-    $context = stream_context_create([
-        'http' => [
-            'header'  => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n",
-            'timeout' => 60,
-        ]
-    ]);
-    $conteudo = @file_get_contents($link, false, $context);
-}
 
 if ($conteudo === false || strlen($conteudo) < 300) {
     echo json_encode([
