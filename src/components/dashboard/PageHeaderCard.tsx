@@ -42,7 +42,7 @@ const PageHeaderCard: React.FC<PageHeaderCardProps> = ({
                 </span>
               )}
             </CardTitle>
-            <p className="text-muted-foreground mt-1 text-sm lg:text-base">
+            <p className="hidden sm:block text-muted-foreground mt-1 text-sm lg:text-base">
               {subtitle}
             </p>
             {currentPlan && (
