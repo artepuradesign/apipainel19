@@ -40,7 +40,7 @@ const DashboardTitleCard = ({
                 <span className="block truncate">{title}</span>
               </CardTitle>
             {subtitle ? (
-                <p className="mt-1 text-xs sm:text-sm text-muted-foreground leading-relaxed">{subtitle}</p>
+                <p className="hidden sm:block mt-1 text-xs sm:text-sm text-muted-foreground leading-relaxed">{subtitle}</p>
             ) : null}
             </div>
           </div>
