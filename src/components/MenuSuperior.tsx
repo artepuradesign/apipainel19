@@ -8,7 +8,6 @@ import ThemeSwitcher from './ThemeSwitcher';
 import { cn } from '@/lib/utils';
 import TextLogo from './TextLogo';
 import NotificationIcon from './notifications/NotificationIcon';
-import UserProfileDropdown from './menu/UserProfileDropdown';
 import {
   Dialog,
   DialogContent,
@@ -180,7 +179,6 @@ const MenuSuperior = () => {
               {user ? (
                 <>
                   <UserWalletDropdown onLogout={handleLogout} />
-                  <UserProfileDropdown onLogout={handleLogout} />
                 </>
               ) : (
                 <>
